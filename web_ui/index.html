@@ -1024,11 +1024,12 @@
 
     <script>
         // HFGCSpy/web_ui/script.js (Embedded)
-        // Version: 0.0.8 // Updated JS for options button, sub-tabs, and general fixes
+        // Version: 0.0.9 // Final JS version with fixes and initial DOM checks
 
         // Wrap the entire script in an IIFE to prevent global variable conflicts
         (() => {
             // --- UI Element References ---
+            // These elements are selected directly here, assuming they exist due to DOMContentLoaded
             const appStatusElement = document.getElementById('app-status');
             const hfgcsServiceStatusSpan = document.getElementById('hfgcs-service-status');
             const js8ServiceStatusSpan = document.getElementById('js8-service-status');
@@ -1036,7 +1037,7 @@
             const js8ServiceIndicator = document.getElementById('js8-service-indicator');
             const messageList = document.getElementById('message-list'); // Local SDR messages list
             const onlineMessageList = document.getElementById('online-message-list'); // Online SDR messages list
-            const optionsButton = document.getElementById('options-button'); // Moved to header
+            const optionsButton = document.getElementById('options-button');
             const optionsModal = document.getElementById('optionsModal');
             const closeModalButton = optionsModal.querySelector('.close-button');
             const toggleThemeCheckbox = document.getElementById('option-dark-mode');
@@ -1063,8 +1064,9 @@
 
             // --- Global State ---
             const p5SketchInstances = {}; // To store p5.js sketch instances per message card ID
-            let currentLocalSdrTab = 'all_local_sdrs'; // Default active local sub-tab
-            let currentOnlineSdrTab = 'all_online_sdrs'; // Default active online sub-tab
+            // Default active sub-tabs, will be updated by populateSDRSubTabs
+            let currentLocalSdrTab = 'all_local_sdrs'; 
+            let currentOnlineSdrTab = 'all_online_sdrs'; 
 
 
             // --- Utility Functions ---
@@ -1124,8 +1126,10 @@
                 applyTheme(true); // Default to dark mode if no preference or is dark
             }
 
+            // Event listener for theme toggle checkbox (attached in fetchAndPopulateOptions)
+
+
             // --- Main Tab Navigation Logic ---
-            // This is now attached via DOMContentLoaded after elements are guaranteed to exist
             function initializeTabListeners() {
                 tabButtons.forEach(button => {
                     button.addEventListener('click', () => {
@@ -1142,20 +1146,20 @@
                         // Handle content load for the newly active main tab
                         // Trigger the active sub-tab's click event for message loading
                         if (tabId === 'online-sdr') {
-                            const activeSubTab = onlineSdrSubTabs.querySelector('.sub-tab-button.active');
-                            if (activeSubTab) {
-                                activeSubTab.click(); // Ensure messages are loaded for active sub-tab
+                            // Ensure online sub-tabs are populated before trying to click
+                            // populateSDRSubTabs will be called by refreshUI periodically
+                            const firstOnlineSubTab = onlineSdrSubTabs.querySelector('.sub-tab-button.active') || onlineSdrSubTabs.querySelector('.sub-tab-button');
+                            if (firstOnlineSubTab) {
+                                firstOnlineSubTab.click(); // If active sub-tab, click it
                             } else {
-                                // If no online sub-tabs, clear message list
-                                renderMessages([], onlineMessageList, 'online'); 
+                                renderMessages([], onlineMessageList, 'online'); // Show empty state if no SDRs
                             }
                         } else { // local-sdr tab
-                            const activeSubTab = localSdrSubTabs.querySelector('.sub-tab-button.active');
-                            if (activeSubTab) {
-                                activeSubTab.click(); // Ensure messages are loaded for active sub-tab
+                            const firstLocalSubTab = localSdrSubTabs.querySelector('.sub-tab-button.active') || localSdrSubTabs.querySelector('.sub-tab-button');
+                            if (firstLocalSubTab) {
+                                firstLocalSubTab.click();
                             } else {
-                                // If no local sub-tabs, clear message list
-                                renderMessages([], messageList, 'local');
+                                renderMessages([], messageList, 'local'); // Show empty state if no SDRs
                             }
                         }
                     });
@@ -1167,7 +1171,8 @@
 
             async function fetchAppStatus() {
                 try {
-                    const response = await fetch(`${window.location.origin}${STATUS_FILE_PATH}?_=${new Date().getTime()}`); // Cache-bust
+                    // Ensure full URL is used with window.location.origin
+                    const response = await fetch(`${window.location.origin}${STATUS_FILE_PATH}?_=${new Date().getTime()}`); 
                     if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
                     const data = await response.json();
 
@@ -1176,7 +1181,6 @@
                     updateServiceStatusUI('hfgcs', data.hfgcs_service || 'Unknown');
                     updateServiceStatusUI('js8', data.js8_service || 'Unknown');
                     
-                    // No direct SDR list population here, done in populateSDRDeviceLists
                     return data; // Return status data for use by other functions
                 } catch (error) {
                     console.error('Error fetching app status:', error);
@@ -1232,7 +1236,7 @@
                 ];
 
                 let messagesToShow = dummyOnlineMessages;
-                if (sdrIdentifier && sdrIdentifier !== 'all_online_sdrs') { // 'all_online_sdrs' sub-tab
+                if (sdrIdentifier) {
                     messagesToShow = dummyOnlineMessages.filter(msg => msg.sdr_source_id === sdrIdentifier);
                 }
                 
@@ -1253,7 +1257,7 @@
             }
 
             // Function to draw waveform on a canvas
-            function drawWaveform(canvasElement, audioPath) { 
+            function drawWaveform(canvasElement, audioPath) { // Defined before first usage
                 if (typeof p5 === 'undefined' || typeof p5.SoundFile === 'undefined') {
                     console.error('p5.js or p5.sound.js not loaded.');
                     return;
@@ -1332,7 +1336,7 @@
             }
 
 
-            function renderMessages(messages, targetListElement, type) {
+            function renderMessages(messages, targetListElement, type) { // Defined before first usage
                 targetListElement.innerHTML = ''; // Clear existing messages
                 if (messages.length === 0) {
                     const row = document.createElement('li');
@@ -1390,7 +1394,7 @@
             }
             
             // Central handler for waveform button click
-            function handleDrawWaveformClick(event) { 
+            function handleDrawWaveformClick(event) { // Defined before first usage
                 const button = event.target;
                 const audioPath = button.dataset.audioPath;
                 const messageCard = button.closest('.message-card');
@@ -1412,16 +1416,97 @@
             }
 
 
-            // --- Options Modal Logic ---
-            optionsButton.addEventListener('click', async () => {
-                optionsModal.classList.add('active');
-                // Fetch current config to populate modal checkboxes/selects
-                await fetchAndPopulateOptions();
-            });
+            function handleDeleteMessage(event) { // Defined before first usage
+                const messageId = event.target.dataset.id;
+                const tableName = event.target.dataset.table; 
 
-            closeModalButton.addEventListener('click', () => {
-                optionsModal.classList.remove('active');
-            });
+                if (confirm(`Are you sure you want to delete message ID ${messageId} from ${tableName}?`)) {
+                    alert(`Simulating deletion of message ID ${messageId} from table ${tableName}.\n\nFor actual deletion, you will need to manually remove this record from your SQLite database.`);
+                    event.target.closest('.message-card').remove(); 
+                }
+            }
+
+            async function handleDeleteOnlineSDR(event) { // Defined before first usage
+                const sdrName = event.target.dataset.name;
+                if (confirm(`Are you sure you want to delete online SDR: ${sdrName}?`)) {
+                    const currentConfig = await getOnlineSDRConfig();
+                    if (currentConfig.online_sdrs && currentConfig.online_sdrs.list_of_sdrs) {
+                        delete currentConfig.online_sdrs.list_of_sdrs[sdrName];
+                    }
+
+                    alert(`Simulating deletion of Online SDR: ${sdrName}.\n\nFor actual persistence, you MUST manually remove this from your /opt/hfgcspy/config.ini [online_sdrs] section and then restart the HFGCSpy service.`);
+                    populateOnlineSDRListInOptions(currentConfig); // Refresh list
+                    // Ensure configData is defined or fetched within scope before passing
+                    const freshConfigForSubtabs = await getOnlineSDRConfig();
+                    populateSDRSubTabs(freshConfigForSubtabs.detected_sdr_devices || [], freshConfigForSubtabs.sdr_selection.selected_devices || [], freshConfigForSubtabs.online_sdrs.list_of_sdrs || {});
+                }
+            }
+
+            async function getOnlineSDRConfig() { // Defined before first usage
+                try {
+                    const response = await fetch(`${window.location.origin}${CONFIG_FILE_PATH}?_=${new Date().getTime()}`);
+                    if (!response.ok) {
+                        if (response.status === 404) {
+                            console.warn(`Config file ${CONFIG_FILE_PATH} not found or inaccessible. Using defaults for options UI.`);
+                            return {
+                                app: { messages_per_page: localStorage.getItem('messagesPerPage') || '50', dark_mode: document.body.classList.contains('dark-mode') },
+                                scan_services: { hfgcs: 'no', js8: 'no' },
+                                sdr_selection: { selected_devices: [] },
+                                online_sdrs: { list_of_sdrs: {} },
+                                detected_sdr_devices: [] // From status.json, will be merged
+                            };
+                        }
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+                    const configData = await response.json();
+                    return configData;
+                } catch (error) {
+                    console.error('Error fetching config for UI:', error);
+                    return {
+                        app: { messages_per_page: localStorage.getItem('messagesPerPage') || '50', dark_mode: document.body.classList.contains('dark-mode') },
+                        scan_services: { hfgcs: 'no', js8: 'no' },
+                        sdr_selection: { selected_devices: [] },
+                        online_sdrs: { list_of_sdrs: {} },
+                        detected_sdr_devices: []
+                    };
+                }
+            }
+
+            async function populateOnlineSDRListInOptions(configData) { // Defined before first usage
+                const onlineSDRs = configData.online_sdrs.list_of_sdrs || {};
+                activeOnlineSDRsList.innerHTML = '';
+                if (Object.keys(onlineSDRs).length === 0) {
+                    activeOnlineSDRsList.innerHTML = '<p>No online SDRs configured yet.</p>';
+                } else {
+                    for (const name in onlineSDRs) {
+                        const sdr = onlineSDRs[name];
+                        const li = document.createElement('li');
+                        li.innerHTML = `<span>${name}</span> <small>(${sdr.url})</small> <button class="delete-online-sdr control-button" data-name="${name}">Delete</button>`;
+                        activeOnlineSDRsList.appendChild(li);
+                    }
+                    activeOnlineSDRsList.querySelectorAll('.delete-online-sdr').forEach(button => {
+                        button.addEventListener('click', handleDeleteOnlineSDR);
+                    });
+                }
+            }
+
+            // --- Options Modal Logic ---
+            if (optionsButton) { // Check if optionsButton exists before adding listener
+                optionsButton.addEventListener('click', async () => {
+                    optionsModal.classList.add('active');
+                    await fetchAndPopulateOptions();
+                });
+            } else {
+                console.error("Options button not found!");
+            }
+
+            if (closeModalButton) { // Check if closeModalButton exists
+                closeModalButton.addEventListener('click', () => {
+                    optionsModal.classList.remove('active');
+                });
+            } else {
+                console.error("Close modal button not found!");
+            }
 
             window.addEventListener('click', (event) => {
                 if (event.target === optionsModal) {
@@ -1437,36 +1522,21 @@
 
             async function fetchAndPopulateOptions() {
                 try {
-                    // Assuming hfgcs.py will export its config (parsed from config.ini) to a JSON file
-                    const response = await fetch(`${window.location.origin}${CONFIG_FILE_PATH}?_=${new Date().getTime()}`); // Cache-bust
-                    let configData;
-                    if (response.ok) {
-                        configData = await response.json();
-                    } else {
-                        console.warn(`Config file ${CONFIG_FILE_PATH} not found or inaccessible. Using defaults for options UI.`);
-                        configData = {
-                            app: { messages_per_page: localStorage.getItem('messagesPerPage') || '50', dark_mode: document.body.classList.contains('dark-mode') },
-                            scan_services: { hfgcs: 'no', js8: 'no' },
-                            sdr_selection: { selected_devices: [] },
-                            online_sdrs: { list_of_sdrs: {} }
-                        };
-                    }
-
-                    // Fetch live status to get detected SDRs (which is in status.json)
+                    const configData = await getOnlineSDRConfig(); // Use the getOnlineSDRConfig function
                     const statusResponse = await fetch(`${window.location.origin}${STATUS_FILE_PATH}?_=${new Date().getTime()}`);
                     if (statusResponse.ok) {
                         const statusData = await statusResponse.json();
                         configData.detected_sdr_devices = statusData.detected_sdr_devices || [];
                     }
 
-
-                    toggleThemeCheckbox.checked = configData.app.dark_mode;
-                    applyTheme(configData.app.dark_mode); // Ensure UI reflects saved theme
+                    if (toggleThemeCheckbox) { // Check if element exists
+                         toggleThemeCheckbox.checked = configData.app.dark_mode;
+                         applyTheme(configData.app.dark_mode); // Apply theme immediately
+                    }
                     document.getElementById('option-hfgcs-scan').checked = configData.scan_services.hfgcs === 'yes';
                     document.getElementById('option-js8-scan').checked = configData.scan_services.js8 === 'yes';
                     messagesPerPageSelect.value = configData.app.messages_per_page || '50';
 
-                    // Populate SDR device list in Options modal
                     const detectedSDRs = configData.detected_sdr_devices || []; 
                     const selectedSDRs = configData.sdr_selection.selected_devices || []; 
 
@@ -1481,32 +1551,14 @@
                         });
                     }
 
-                    // Populate Online SDRs list in Options modal
-                    const onlineSDRs = configData.online_sdrs.list_of_sdrs || {};
-                    activeOnlineSDRsList.innerHTML = '';
-                    if (Object.keys(onlineSDRs).length === 0) {
-                        activeOnlineSDRsList.innerHTML = '<p>No online SDRs configured yet.</p>';
-                    } else {
-                        for (const name in onlineSDRs) {
-                            const sdr = onlineSDRs[name];
-                            const li = document.createElement('li');
-                            li.innerHTML = `<span>${name}</span> <small>(${sdr.url})</small> <button class="delete-online-sdr control-button" data-name="${name}">Delete</button>`;
-                            activeOnlineSDRsList.appendChild(li);
-                        }
-                        activeOnlineSDRsList.querySelectorAll('.delete-online-sdr').forEach(button => {
-                            button.addEventListener('click', handleDeleteOnlineSDR);
-                        });
-                    }
-
-                }
-                
-                catch (error) {
+                    populateOnlineSDRListInOptions(configData); // Populate online SDRs in options modal
+                } catch (error) {
                     console.error('Error fetching/populating options:', error);
                     alert('Could not load options. Ensure HFGCSpy backend is running and config.json is accessible.');
                 }
             }
             
-            async function saveOptions() {
+            async function saveOptions() { // Defined before first usage
                 const currentConfigFromUI = {
                     app: {
                         dark_mode: toggleThemeCheckbox.checked,
@@ -1524,113 +1576,49 @@
                     }
                 };
 
-                // Populate online_sdrs from current UI state
                 activeOnlineSDRsList.querySelectorAll('li').forEach(li => {
                     const nameSpan = li.querySelector('span:first-child');
                     const urlSmall = li.querySelector('small');
                     if (nameSpan && urlSmall) {
                         const name = nameSpan.textContent;
                         const url = urlSmall.textContent.replace('(', '').replace(')', '');
-                        currentConfigFromUI.online_sdrs.list_of_sdrs[name] = { url: url, type: "web_sdr" }; // Assuming type
+                        currentConfigFromUI.online_sdrs.list_of_sdrs[name] = { url: url, type: "web_sdr" }; 
                     }
                 });
-
-                // --- Saving changes to config.ini requires a backend script ---
-                // As discussed, direct JS file write is not possible.
-                // You would need a very lightweight Python CGI script (or similar) exposed by Apache2
-                // that accepts a POST request with this JSON data and writes it back to config.ini.
-                // For now, an alert will serve as a reminder for manual action.
                 
                 alert(`Options saved in UI. \n\nFor changes to "SDR Service Control", "Local SDR Device Selection", and "Online SDRs" to take effect, you MUST manually update your /opt/hfgcspy/config.ini file based on your selections here, and then restart the HFGCSpy service (sudo systemctl restart hfgcspy.service).`);
                 
                 console.log("Simulated config to save:", currentConfigFromUI);
                 localStorage.setItem('messagesPerPage', messagesPerPageSelect.value); // Persist UI choice
 
-                // Close modal and refresh data
                 optionsModal.classList.remove('active');
                 refreshUI(); 
-            });
-
-            // --- Online SDR Management ---
-            async function fetchOnlineSDRMessages() {
-                // This function fetches data for the online SDR tab.
-                // In future, hfgcs.py would provide data from online SDRs (from their tables).
-                // For now, it filters the dummy data by the active sub-tab.
-                const activeOnlineSdrSubTab = onlineSdrSubTabs.querySelector('.sub-tab-button.active');
-                const sdrIdentifier = activeOnlineSdrSubTab ? activeOnlineSdrSubTab.dataset.sdrId : null;
-
-                onlineMessageList.innerHTML = `<li class="message-card loading"><p style="text-align:center;">Loading online SDR messages...</p></li>`;
-                
-                const dummyOnlineMessages = [
-                    { id: 'online_sample_1', timestamp: '2025-06-28 01:45:00', frequency_hz: 9900000, mode: 'AM', message_type: 'Shortwave Broadcast', callsign: 'DW', decoded_text: 'Simulated Deutsche Welle broadcast.', raw_content_path: 'online_sample1.mp3', notes: 'Example from SDR Europe.', sdr_source_id: 'SDR_Europe', table_name: 'online_sdr_sdr_europe' },
-                    { id: 'online_sample_2', timestamp: '2025-06-28 01:50:15', frequency_hz: 15450000, mode: 'USB', message_type: 'Utility', callsign: 'MARITIME', decoded_text: 'Simulated maritime traffic report.', raw_content_path: 'online_sample2.mp3', notes: 'Example from SDR USA.', sdr_source_id: 'SDR_USA', table_name: 'online_sdr_sdr_usa' },
-                    { id: 'online_sample_3', timestamp: '2025-06-28 02:05:30', frequency_hz: 10450000, mode: 'JS8', message_type: 'S2 GhostNet', callsign: 'N0CALL', decoded_text: 'JS8: N0CALL testing QTH. Grid FN20.', raw_content_path: 'online_sample3.mp3', notes: 'Example from SDR Europe.', sdr_source_id: 'SDR_Europe', table_name: 'online_sdr_sdr_europe' }
-                ];
-
-                let messagesToShow = dummyOnlineMessages;
-                if (sdrIdentifier) {
-                    messagesToShow = dummyOnlineMessages.filter(msg => msg.sdr_source_id === sdrIdentifier);
-                }
-                
-                renderMessages(messagesToShow, onlineMessageList, 'online');
             }
 
-            addOnlineSdrButton.addEventListener('click', async () => {
-                const url = newOnlineSdrUrlInput.value.trim();
-                const name = newOnlineSdrNameInput.value.trim();
-
-                if (!url || !name) {
-                    alert('Please enter both URL and Name for the online SDR.');
-                    return;
-                }
-
-                const currentConfig = await getOnlineSDRConfig();
-                currentConfig.online_sdrs = currentConfig.online_sdrs || { list_of_sdrs: {} };
-                currentConfig.online_sdrs.list_of_sdrs[name] = { url: url, type: "web_sdr" };
-
-                alert(`Simulating add of Online SDR: Name='${name}', URL='${url}'.\n\nFor actual persistence, you MUST manually add this to your /opt/hfgcspy/config.ini [online_sdrs] section and then restart the HFGCSpy service.`);
-                
-                newOnlineSdrUrlInput.value = '';
-                newOnlineSdrNameInput.value = '';
-                // Directly update the UI list for immediate feedback and re-populate sub-tabs
-                populateOnlineSDRListInOptions(currentConfig); 
-                // Ensure configData is defined or fetched within scope before passing
-                const freshConfigForSubtabs = await getOnlineSDRConfig(); 
-                populateSDRSubTabs(freshConfigForSubtabs.detected_sdr_devices || [], freshConfigForSubtabs.sdr_selection.selected_devices || [], freshConfigForSubtabs.online_sdrs.list_of_sdrs || {});
-            });
-
-            async function handleDeleteOnlineSDR(event) {
-                const sdrName = event.target.dataset.name;
-                if (confirm(`Are you sure you want to delete online SDR: ${sdrName}?`)) {
-                    const currentConfig = await getOnlineSDRConfig();
-                    if (currentConfig.online_sdrs && currentConfig.online_sdrs.list_of_sdrs) {
-                        delete currentConfig.online_sdrs.list_of_sdrs[sdrName];
+            // Function to populate online SDRs list in options modal
+            function populateOnlineSDRListInOptions(configData) { // Defined before first usage
+                const onlineSDRs = configData.online_sdrs.list_of_sdrs || {};
+                activeOnlineSDRsList.innerHTML = '';
+                if (Object.keys(onlineSDRs).length === 0) {
+                    activeOnlineSDRsList.innerHTML = '<p>No online SDRs configured yet.</p>';
+                } else {
+                    for (const name in onlineSDRs) {
+                        const sdr = onlineSDRs[name];
+                        const li = document.createElement('li');
+                        li.innerHTML = `<span>${name}</span> <small>(${sdr.url})</small> <button class="delete-online-sdr control-button" data-name="${name}">Delete</button>`;
+                        activeOnlineSDRsList.appendChild(li);
                     }
-
-                    alert(`Simulating deletion of Online SDR: ${sdrName}.\n\nFor actual persistence, you MUST manually remove this from your /opt/hfgcspy/config.ini [online_sdrs] section and then restart the HFGCSpy service.`);
-                    populateOnlineSDRListInOptions(currentConfig); // Refresh list
-                    // Ensure configData is defined or fetched within scope before passing
-                    const freshConfigForSubtabs = await getOnlineSDRConfig();
-                    populateSDRSubTabs(freshConfigForSubtabs.detected_sdr_devices || [], freshConfigForSubtabs.sdr_selection.selected_devices || [], freshConfigForSubtabs.online_sdrs.list_of_sdrs || {});
+                    activeOnlineSDRsList.querySelectorAll('.delete-online-sdr').forEach(button => {
+                        button.addEventListener('click', handleDeleteOnlineSDR);
+                    });
                 }
             }
 
-            async function handleDeleteMessage(event) {
-                const messageId = event.target.dataset.id;
-                const tableName = event.target.dataset.table; 
-
-                if (confirm(`Are you sure you want to delete message ID ${messageId} from ${tableName}?`)) {
-                    alert(`Simulating deletion of message ID ${messageId} from table ${tableName}.\n\nFor actual deletion, you will need to manually remove this record from your SQLite database.`);
-                    event.target.closest('.message-card').remove(); 
-                }
-            }
 
             // --- Sub-tab Logic for SDRs ---
-            // This function creates/updates sub-tabs for both local and online SDRs
-            async function populateSDRSubTabs(detectedLocalSDRs, selectedLocalSDRs, configuredOnlineSDRs) {
+            async function populateSDRSubTabs(detectedLocalSDRs, selectedLocalSDRs, configuredOnlineSDRs) { // Defined before first usage
                 // Local SDR Sub-tabs
                 localSdrSubTabs.innerHTML = '';
-                // Add an "All Local SDRs" tab
                 if (detectedLocalSDRs.length > 0) {
                     const allLocalBtn = document.createElement('button');
                     allLocalBtn.className = 'sub-tab-button'; 
@@ -1657,11 +1645,12 @@
                         });
                         localSdrSubTabs.appendChild(button);
                     });
-                    // Set active tab after all buttons are added
-                    const defaultLocalTab = localSdrSubTabs.querySelector(`[data-sdr-id="${currentLocalSdrTab}"]`) || localSdrSubTabs.children[0];
+                    
+                    const defaultLocalTab = localSdrSubTabs.querySelector(`[data-sdr-id="${currentLocalSdrTab}"]`);
                     if (defaultLocalTab) {
-                        defaultLocalTab.classList.add('active');
-                        currentLocalSdrTab = defaultLocalTab.dataset.sdrId; // Ensure currentLocalSdrTab is correctly set
+                        defaultLocalTab.click(); // Activate the default/current tab
+                    } else if (localSdrSubTabs.children.length > 0) {
+                         localSdrSubTabs.children[0].click(); // Fallback to first if default not found
                     }
 
                 } else {
@@ -1670,7 +1659,6 @@
                 
                 // Online SDR Sub-tabs
                 onlineSdrSubTabs.innerHTML = '';
-                // Add an "All Online SDRs" tab
                 if (Object.keys(configuredOnlineSDRs).length > 0) {
                     const allOnlineBtn = document.createElement('button');
                     allOnlineBtn.className = 'sub-tab-button'; 
@@ -1698,11 +1686,12 @@
                         });
                         onlineSdrSubTabs.appendChild(button);
                     }
-                    // Set active tab after all buttons are added
-                    const defaultOnlineTab = onlineSdrSubTabs.querySelector(`[data-sdr-id="${currentOnlineSdrTab}"]`) || onlineSdrSubTabs.children[0];
+                    
+                    const defaultOnlineTab = onlineSdrSubTabs.querySelector(`[data-sdr-id="${currentOnlineSdrTab}"]`);
                     if (defaultOnlineTab) {
-                        defaultOnlineTab.classList.add('active');
-                        currentOnlineSdrTab = defaultOnlineTab.dataset.sdrId; // Ensure currentOnlineSdrTab is correctly set
+                        defaultOnlineTab.click(); // Activate the default/current tab
+                    } else if (onlineSdrSubTabs.children.length > 0) {
+                        onlineSdrSubTabs.children[0].click(); // Fallback to first if default not found
                     }
                 } else {
                     onlineSdrSubTabs.innerHTML = '<p>No online SDRs configured.</p>';
@@ -1711,7 +1700,7 @@
 
 
             // This function fetches config data and then populates both options and sub-tabs
-            async function populateSDRDeviceListsAndSubTabs() {
+            async function populateSDRDeviceListsAndSubTabs() { // Defined before first usage
                 const configData = await getOnlineSDRConfig(); // getOnlineSDRConfig now fetches the full config
                 const statusResponse = await fetch(`${window.location.origin}${STATUS_FILE_PATH}?_=${new Date().getTime()}`);
                 let detectedSDRsFromStatus = [];
@@ -1738,7 +1727,7 @@
             }
 
             // Central function to be called on initial load and intervals
-            async function refreshUI() {
+            async function refreshUI() { // Defined before first usage
                 await fetchAppStatus(); // Updates main service status and potentially populates options (via sub-func)
                 await populateSDRDeviceListsAndSubTabs(); // Ensures sub-tabs are up-to-date with detected/configured SDRs
 
@@ -1762,28 +1751,28 @@
 
             // --- Initial Load and Periodic Updates ---
             // Call refreshUI to handle initial loading and subsequent updates
-            refreshUI(); 
-            setInterval(refreshUI, 10000); // Refresh all UI components every 10 seconds
+            // Ensure DOM is fully loaded before calling refreshUI
+            document.addEventListener('DOMContentLoaded', () => {
+                refreshUI(); 
+                setInterval(refreshUI, 10000); // Refresh all UI components every 10 seconds
 
-            // Trigger fetch when messages per page changes
-            messagesPerPageSelect.addEventListener('change', () => {
-                const activeTab = document.querySelector('.tab-button.active');
-                if (activeTab.dataset.tab === 'local-sdr') {
-                    fetchLocalMessages(currentLocalSdrTab);
-                } else {
-                    fetchOnlineSDRMessages(currentOnlineSdrTab);
-                }
-            });
+                // Trigger fetch when messages per page changes
+                messagesPerPageSelect.addEventListener('change', () => {
+                    const activeTab = document.querySelector('.tab-button.active');
+                    if (activeTab.dataset.tab === 'local-sdr') {
+                        fetchLocalMessages(currentLocalSdrTab);
+                    } else {
+                        fetchOnlineSDRMessages(currentOnlineSdrTab);
+                    }
+                });
 
-
-            // --- Attach Event Listeners to Sample Messages (for initial load) ---
-            // These will be removed/re-attached when messages are dynamically loaded
-            // Use querySelectorAll on the parent message lists to catch all sample elements
-            document.querySelectorAll('#message-list .message-card .delete-button, #online-message-list .message-card .delete-button').forEach(button => {
-                button.addEventListener('click', handleDeleteMessage);
-            });
-            document.querySelectorAll('#message-list .message-card .waveform-button, #online-message-list .message-card .waveform-button').forEach(button => {
-                button.addEventListener('click', handleDrawWaveformClick);
+                // Attach event listeners to initial sample messages (if they exist)
+                document.querySelectorAll('#message-list .message-card .delete-button, #online-message-list .message-card .delete-button').forEach(button => {
+                    button.addEventListener('click', handleDeleteMessage);
+                });
+                document.querySelectorAll('#message-list .message-card .waveform-button, #online-message-list .message-card .waveform-button').forEach(button => {
+                    button.addEventListener('click', handleDrawWaveformClick);
+                });
             });
 
         })(); // End of IIFE
