@@ -5,8 +5,11 @@
 # HFGCSpy is a Python-based SDR scanner, recorder, and parser,
 # designed for standalone operation with a static web interface served by Apache2.
 
+# --- Force working directory to /tmp to avoid getcwd errors ---
+cd /tmp || { echo "ERROR: Cannot change to /tmp. Exiting."; exit 1; }
+
 # --- Script Version ---
-SCRIPT_VERSION="1.1.0" # Updated version
+SCRIPT_VERSION="1.1.1" # Updated version for this fix
 
 # --- Configuration Variables (Defaults) ---
 # GitHub repository for HFGCSpy application (replace with your actual repo later)
@@ -65,32 +68,14 @@ check_root() {
     fi
 }
 
-# Function to prompt for installation paths
-prompt_for_paths() {
-    log_info "Determining HFGCSpy installation paths:"
-
-    read -p "Enter desired application installation directory (default: $DEFAULT_APP_DIR): " USER_APP_DIR
-    HFGCSPY_APP_DIR="${USER_APP_DIR:-$DEFAULT_APP_DIR}"
-    HFGCSPY_VENV_DIR="${HFGCSPY_APP_DIR}/venv"
-    HFGCSPY_CONFIG_FILE="${HFGCSPY_APP_DIR}/config.ini"
-    HFGCSPY_DB_PATH="${HFGCSPY_APP_DIR}/data/hfgcspy.db"
-    HFGCSPY_LOG_PATH="${HFGCSPY_APP_DIR}/logs/hfgcspy.log"
-    log_info "HFGCSpy application will be installed to: $HFGCSPY_APP_DIR"
-
-    read -p "Enter desired web UI hosting directory (default: $DEFAULT_WEB_ROOT_DIR): " USER_WEB_ROOT_DIR
-    WEB_ROOT_DIR="${USER_WEB_ROOT_DIR:-$DEFAULT_WEB_ROOT_DIR}"
-    HFGCSPY_DATA_DIR="${WEB_ROOT_DIR}/hfgcspy_data"
-    HFGCSPY_RECORDINGS_PATH="${HFGCSPY_DATA_DIR}/recordings"
-    HFGCSPY_CONFIG_JSON_PATH="${HFGCSPY_DATA_DIR}/config.json"
-    log_info "HFGCSpy web UI will be hosted at: $WEB_ROOT_DIR"
-}
-
 # Function to install system packages and clone HFGCSpy
 install_system_and_python_deps() {
     log_info "Updating package lists and installing core dependencies..."
     sudo apt update || log_error "Failed to update package lists."
+    # Ensure all necessary packages for Docker and system utilities are here explicitly
     sudo apt install -y git python3 python3-pip python3-venv build-essential libusb-1.0-0-dev \
-        libatlas-base-dev libopenblas-dev net-tools apache2 || log_error "Failed to install core system dependencies or Apache2."
+        libatlas-base-dev libopenblas-dev net-tools apache2 \
+        apt-transport-https ca-certificates curl gnupg lsb-release || log_error "Failed to install core system dependencies or Apache2."
 
     # Install rtl-sdr tools
     log_info "Installing rtl-sdr tools..."
@@ -151,23 +136,32 @@ configure_hfgcspy_app() {
 
     # Add/Update app_paths section in config.ini dynamically from current install paths
     log_info "Updating app_paths in config.ini with correct absolute paths."
+    # Ensure the [app_paths] section exists
     if ! sudo grep -q "^\[app_paths\]" "$HFGCSPY_CONFIG_FILE"; then
-        echo "" | sudo tee -a "$HFGCSPY_CONFIG_FILE" > /dev/null
-        echo "[app_paths]" | sudo tee -a "$HFGCSPY_CONFIG_FILE" > /dev/null
+        echo -e "\n[app_paths]" | sudo tee -a "$HFGCSPY_CONFIG_FILE" > /dev/null
     fi
-    sudo sed -i '/^\[app_paths\]/a \
-status_file = '"$STATUS_FILE"'
-' "$HFGCSPY_CONFIG_FILE" || sudo sed -i '/^status_file =/ c\status_file = '"$STATUS_FILE"'' "$HFGCSPY_CONFIG_FILE"
-    sudo sed -i '/^\[app_paths\]/a \
-messages_file = '"$MESSAGES_FILE"'
-' "$HFGCSPY_CONFIG_FILE" || sudo sed -i '/^messages_file =/ c\messages_file = '"$MESSAGES_FILE"'' "$HFGCSPY_CONFIG_FILE"
-    sudo sed -i '/^\[app_paths\]/a \
-recordings_dir = '"$RECORDINGS_PATH"'
-' "$HFGCSPY_CONFIG_FILE" || sudo sed -i '/^recordings_dir =/ c\recordings_dir = '"$RECORDINGS_PATH"'' "$HFGCSPY_CONFIG_FILE"
-    sudo sed -i '/^\[app_paths\]/a \
-config_json_file = '"$CONFIG_JSON_FILE"'
-' "$HFGCSPY_CONFIG_FILE" || sudo sed -i '/^config_json_file =/ c\config_json_file = '"$CONFIG_JSON_FILE"'' "$HFGCSPY_CONFIG_FILE"
-    
+
+    # Using awk for safer in-place replacement/addition within sections
+    # It attempts to replace lines if they exist, otherwise adds them under [app_paths]
+    AWK_SCRIPT='
+    BEGIN { in_app_paths=0; status_found=0; messages_found=0; recordings_found=0; config_json_found=0 }
+    /^\[app_paths\]$/ { in_app_paths=1 }
+    /^\s*status_file\s*=/ && in_app_paths { print "status_file = '"$STATUS_FILE"'"; status_found=1; next }
+    /^\s*messages_file\s*=/ && in_app_paths { print "messages_file = '"$MESSAGES_FILE"'"; messages_found=1; next }
+    /^\s*recordings_dir\s*=/ && in_app_paths { print "recordings_dir = '"$RECORDINGS_PATH"'"; recordings_found=1; next }
+    /^\s*config_json_file\s*=/ && in_app_paths { print "config_json_file = '"$CONFIG_JSON_FILE"'"; config_json_found=1; next }
+    { print }
+    END {
+        if (in_app_paths) {
+            if (!status_found) print "status_file = '"$STATUS_FILE"'";
+            if (!messages_found) print "messages_file = '"$MESSAGES_FILE"'";
+            if (!recordings_found) print "recordings_dir = '"$RECORDINGS_PATH"'";
+            if (!config_json_found) print "config_json_file = '"$CONFIG_JSON_FILE"'";
+        }
+    }'
+    sudo awk "$AWK_SCRIPT" "$HFGCSPY_CONFIG_FILE" > /tmp/config_hfgcspy_temp && sudo mv /tmp/config_hfgcspy_temp "$HFGCSPY_CONFIG_FILE"
+
+
     # Set up user/group ownership for app directory for proper file access by service
     local HFGCS_USER=$(whoami)
     if [ "$HFGCS_USER" == "root" ]; then
@@ -212,6 +206,10 @@ configure_apache2_webui() {
     # Check for existing Let's Encrypt certificates
     LETSENCRYPT_CERTS_BASE_DIR="/etc/letsencrypt/live"
     LE_DOMAINS=()
+    USE_SSL="no" # Default to no SSL
+    SSL_CERT_PATH=""
+    SSL_KEY_PATH=""
+
     if [ -d "$LETSENCRYPT_CERTS_BASE_DIR" ]; then
         mapfile -t LE_DOMAINS < <(sudo find "$LETSENCRYPT_CERTS_BASE_DIR" -maxdepth 1 -mindepth 1 -type d -printf '%P\n' | grep -v '^README$')
         if [ ${#LE_DOMAINS[@]} -gt 0 ]; then
@@ -291,7 +289,13 @@ EOF
     SSLEngine on
     SSLCertificateFile "$SSL_CERT_PATH"
     SSLCertificateKeyFile "$SSL_KEY_PATH"
-    SSLCertificateChainFile "${LETSENCRYPT_CERTS_BASE_DIR}/${SSL_DOMAIN}/chain.pem" # Often needed for full chain
+    # Certbot usually creates chain.pem and fullchain.pem. Use fullchain.pem often includes chain.
+    # If fullchain.pem is used for SSLCertificateFile, chain.pem is often not needed separately.
+    # However, if explicitly needed for older setups or specific configurations, it can be added.
+    # For robust compatibility, explicitly try to include chain.pem if available and different from fullchain.
+    if [ -f "${LETSENCRYPT_CERTS_BASE_DIR}/${SSL_DOMAIN}/chain.pem" ] && [ "$SSL_CERT_PATH" != "${LETSENCRYPT_CERTS_BASE_DIR}/${SSL_DOMAIN}/fullchain.pem" ]; then
+        echo "SSLCertificateChainFile \"${LETSENCRYPT_CERTS_BASE_DIR}/${SSL_DOMAIN}/chain.pem\"" | sudo tee -a "$APACHE_CONF" > /dev/null
+    fi
 
     # HSTS (optional, highly recommended for security)
     Header always set Strict-Transport-Security "max-age=63072000; includeSubDomains; preload"
@@ -308,7 +312,7 @@ EOF
     
     sudo systemctl restart apache2 || log_error "Failed to restart Apache2. Check its logs for errors."
     log_info "Apache2 configured to serve HFGCSpy web UI."
-    log_info "Access HFGCSpy at http://${SERVER_NAME}/ (and https://${SERVER_NAME}/ if SSL was configured)."
+    log_info "Access HFGCSpy at http://${SERVER_NAME}/hfgcspy (and https://${SERVER_NAME}/hfgcspy if SSL was configured)."
 }
 
 
