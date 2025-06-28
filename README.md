@@ -80,15 +80,15 @@ Installation
 The setup.sh script automates the entire installation process.
 
 One-Line Install
-To install HFGCSpy on your Raspberry Pi:
+To install HFGCSpy on your Raspberry Pi, run the following command in your terminal. This command will download the setup.sh script to a temporary location and execute it with root privileges.
 
-curl -fsSL https://raw.githubusercontent.com/sworrl/HFGCSpy/main/setup.sh | sudo bash -s -- --install
+sudo curl -o /tmp/setup.sh -fsSL https://raw.githubusercontent.com/sworrl/HFGCSpy/main/setup.sh && sudo chmod +x /tmp/setup.sh && sudo /tmp/setup.sh --install
 
 During installation, the script will:
 
 Update system packages and install necessary dependencies (Git, Python3, Apache2, rtl-sdr tools, etc.).
 
-Ask for your preferred application and web UI installation directories (defaults: /opt/hfgcspy and /var/www/html/hfgcspy).
+Prompt for desired application and web UI installation directories (defaults: /opt/hfgcspy and /var/www/html/hfgcspy). You can accept the defaults by pressing Enter.
 
 Blacklist conflicting DVB-T kernel modules (requires a reboot for full effect).
 
@@ -119,9 +119,9 @@ Setting up the Python virtual environment and pip installing requirements.txt.
 
 Configuring config.ini (see below).
 
-Manually configuring Apache2 to serve /opt/hfgcspy/web_ui and alias /hfgcspy_data to /opt/hfgcspy/web_ui/hfgcspy_data.
+Manually configuring Apache2 to serve the web UI (e.g., from /opt/hfgcspy/web_ui) and alias the data directory (e.g., /hfgcspy_data to /opt/hfgcspy/web_ui/hfgcspy_data).
 
-Creating and enabling a systemd service file (example provided in setup.sh).
+Creating and enabling a systemd service file (example provided in the setup.sh script).
 
 Usage
 Accessing the Web UI
@@ -240,4 +240,4 @@ This project is licensed under the GNU General Public License v3.0. See the LICE
 
 Version
 HFGCSpy Application Version: 0.0.3
-Installer (setup.sh) Version: 1.1.0
+Installer (setup.sh) Version: 1.1.1
