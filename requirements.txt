@@ -1,0 +1,10 @@
+# HFGCSpy/requirements.txt
+# Version: 0.0.1
+
+pyrtlsdr
+numpy
+scipy
+Flask
+gunicorn
+python-dotenv
+requests
