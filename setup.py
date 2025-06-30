@@ -1,7 +1,7 @@
 # HFGCSpy/setup.py
 # Python-based installer for HFGCSpy application.
 # This script handles all installation, configuration, and service management.
-# Version: 1.2.1 # Version bump for this fix
+# Version: 1.2.3 # Version bump for this fix
 
 import os
 import sys
@@ -9,28 +9,29 @@ import subprocess
 import configparser
 import shutil
 import re
-import argparse # <<< ADDED THIS IMPORT
+import argparse
 
 # --- Script Version ---
-__version__ = "1.2.1" # Updated version
+__version__ = "1.2.3" # Updated version
 
-# --- Configuration Variables (Defaults) ---
+# --- Configuration Variables (Defaults - always initialized) ---
 HFGCSPY_REPO = "https://github.com/sworrl/HFGCSpy.git" # IMPORTANT: Ensure this is correct!
 
 # Default installation paths
 DEFAULT_APP_DIR = "/opt/hfgcspy"
 DEFAULT_WEB_ROOT_DIR = "/var/www/html/hfgcspy"
 
-# Derived paths (will be set dynamically during execution)
-HFGCSPY_APP_DIR = ""
-HFGCSPY_VENV_DIR = ""
-HFGCSPY_CONFIG_FILE = ""
+# Global variables, initialized with defaults, possibly updated later by prompts or config loading
+HFGCSPY_APP_DIR = DEFAULT_APP_DIR
+HFGCSPY_VENV_DIR = os.path.join(HFGCSPY_APP_DIR, "venv")
+HFGCSPY_CONFIG_FILE = os.path.join(HFGCSPY_APP_DIR, "config.ini")
 HFGCSPY_SERVICE_NAME = "hfgcspy.service"
 
-WEB_ROOT_DIR = ""
-HFGCSPY_DATA_DIR = ""
-HFGCSPY_RECORDINGS_PATH = ""
-HFGCSPY_CONFIG_JSON_PATH = ""
+WEB_ROOT_DIR = DEFAULT_WEB_ROOT_DIR
+HFGCSPY_DATA_DIR = os.path.join(WEB_ROOT_DIR, "hfgcspy_data")
+HFGCSPY_RECORDINGS_PATH = os.path.join(HFGCSPY_DATA_DIR, "recordings")
+HFGCSPY_CONFIG_JSON_PATH = os.path.join(HFGCSpy_DATA_DIR, "config.json")
+
 
 # --- Helper Functions ---
 
@@ -59,9 +60,9 @@ def run_command(command, check_return=True, capture_output=False, shell=False):
     try:
         # Use shell=True for commands with pipes or redirects often found in apt/bash calls
         # Use current sys.executable for python calls to ensure correct interpreter
-        if isinstance(command, list) and command[0] == "python3":
+        if isinstance(command, list) and command[0] == sys.executable: # Check if it's explicitly python call
              result = subprocess.run(command, check=check_return, capture_output=capture_output, text=True)
-        else:
+        else: # For shell commands
             result = subprocess.run(command, check=check_return, capture_output=capture_output, text=True, shell=shell)
         if capture_output:
             return result.stdout.strip()
@@ -80,6 +81,7 @@ def check_root():
 # --- Installation Steps ---
 
 def prompt_for_paths():
+    # Use global to update variables defined at the module level
     global HFGCSpy_APP_DIR, HFGCSpy_VENV_DIR, HFGCSpy_CONFIG_FILE
     global WEB_ROOT_DIR, HFGCSpy_DATA_DIR, HFGCSpy_RECORDINGS_PATH, HFGCSpy_CONFIG_JSON_PATH
 
@@ -127,9 +129,9 @@ def install_system_and_python_deps():
     log_info(f"Cloning HFGCSpy application from GitHub to {HFGCSPY_APP_DIR}...")
     if os.path.exists(HFGCSPY_APP_DIR):
         log_warn(f"HFGCSpy directory {HFGCSPY_APP_DIR} already exists. Skipping clone. Use --uninstall first if you want a fresh install.")
-        return False # Indicate that it was an update, not a fresh clone
+        return False # Indicate that it was an no fresh clone
     else:
-        run_command(["git", "clone", HFGCSPY_REPO, HFGCSpy_APP_DIR])
+        run_command(["git", "clone", HFGCSpy_REPO, HFGCSpy_APP_DIR])
     
     log_info(f"Setting up Python virtual environment in {HFGCSpy_VENV_DIR} and installing dependencies...")
     # Explicitly use sys.executable to ensure we're using the python3 that ran this script
@@ -142,8 +144,8 @@ def install_system_and_python_deps():
 
 def configure_hfgcspy_app():
     log_info("Configuring HFGCSpy application settings...")
-    os.makedirs(os.path.dirname(HFGCSpy_DB_PATH), exist_ok=True)
-    os.makedirs(os.path.dirname(HFGCSpy_LOG_PATH), exist_ok=True)
+    os.makedirs(os.path.dirname(HFGCSPY_DB_PATH), exist_ok=True)
+    os.makedirs(os.path.dirname(HFGCSPY_LOG_PATH), exist_ok=True)
     
     if not os.path.exists(HFGCSpy_CONFIG_FILE):
         template_path = os.path.join(HFGCSpy_APP_DIR, "config.ini.template")
@@ -469,7 +471,7 @@ def uninstall_hfgcspy():
     run_command("systemctl daemon-reload", shell=True) # Use shell=True for daemon-reload
     
     if os.path.exists(HFGCSpy_APP_DIR):
-        log_warn(f"Removing HFGCSpy application directory: {HFGCSPY_APP_DIR}...")
+        log_warn(f"Removing HFGCSpy application directory: {HFGCSpy_APP_DIR}...")
         shutil.rmtree(HFGCSpy_APP_DIR)
     else:
         log_warn(f"HFGCSpy application directory {HFGCSPY_APP_DIR} not found. Skipping removal.")
@@ -554,7 +556,7 @@ def main():
                             
                         HFGCSPY_DATA_DIR = os.path.join(WEB_ROOT_DIR, "hfgcspy_data")
                         HFGCSPY_RECORDINGS_PATH = full_recordings_path_from_config
-                        HFGCSPY_CONFIG_JSON_PATH = os.path.join(HFGCSPY_DATA_DIR, "config.json")
+                        HFGCSPY_CONFIG_JSON_PATH = os.path.join(HFGCSpy_DATA_DIR, "config.json")
 
                     except configparser.NoOptionError:
                         log_warn("app_paths section in config.ini incomplete. Using default web paths.")
