@@ -1,7 +1,7 @@
 # HFGCSpy/setup.py
 # Python-based installer for HFGCSpy application.
 # This script handles all installation, configuration, and service management.
-# Version: 1.2.16 # Version bump for this critical fix attempt
+# Version: 1.2.19 # Version bump for refactoring and critical fix
 
 import os
 import sys
@@ -12,7 +12,7 @@ import re
 import argparse
 
 # --- Script Version ---
-__version__ = "1.2.16" # Updated version
+__version__ = "1.2.19" # Updated version
 
 # --- Configuration Constants (Defined at module top-level for absolute clarity and immediate availability) ---
 HFGCSPY_REPO = "https://github.com/sworrl/HFGCSpy.git" # IMPORTANT: Ensure this is correct!
@@ -22,20 +22,20 @@ HFGCSPY_SERVICE_NAME = "hfgcspy.service" # Service name is constant
 APP_DIR_DEFAULT = "/opt/hfgcspy"
 WEB_ROOT_DIR_DEFAULT = "/var/www/html/hfgcspy"
 
-# --- Global Path Variables (Initialized to None, will be set by _set_global_paths_runtime) ---
+# --- Global Path Variables (Initialized to None, will be set by set_global_installation_paths) ---
 # These are the variables that will hold the *actual* paths during script execution.
 # They are declared here, and their concrete values (derived from defaults or user input)
-# will be assigned ONLY within the _set_global_paths_runtime function.
-HFGCSpy_APP_DIR = None 
-HFGCSpy_VENV_DIR = None
-HFGCSpy_CONFIG_FILE = None
-HFGCSpy_DB_PATH = None  # Added: Global for DB path
-HFGCSpy_LOG_PATH = None # Added: Global for Log path
+# will be assigned ONLY within the set_global_installation_paths function.
+hfgcs_app_dir = None 
+hfgcs_venv_dir = None
+hfgcs_config_file = None
+hfgcs_db_path = None  
+hfgcs_log_path = None 
 
-WEB_ROOT_DIR = None
-HFGCSpy_DATA_DIR = None
-HFGCSPY_RECORDINGS_PATH = None
-HFGCSPY_CONFIG_JSON_PATH = None
+web_root_dir = None
+hfgcs_data_dir = None
+hfgcs_recordings_path = None
+hfgcs_config_json_path = None
 
 
 # --- Helper Functions ---
@@ -90,20 +90,20 @@ def set_global_installation_paths(app_dir_val, web_root_dir_val):
     app and web root directories.
     This function should be called explicitly in main() after base paths are determined.
     """
-    global HFGCSpy_APP_DIR, HFGCSpy_VENV_DIR, HFGCSpy_CONFIG_FILE, HFGCSpy_DB_PATH, HFGCSpy_LOG_PATH
-    global WEB_ROOT_DIR, HFGCSpy_DATA_DIR, HFGCSPY_RECORDINGS_PATH, HFGCSPY_CONFIG_JSON_PATH
+    global hfgcs_app_dir, hfgcs_venv_dir, hfgcs_config_file, hfgcs_db_path, hfgcs_log_path
+    global web_root_dir, hfgcs_data_dir, hfgcs_recordings_path, hfgcs_config_json_path
 
-    HFGCSpy_APP_DIR = app_dir_val
-    HFGCSpy_VENV_DIR = os.path.join(HFGCSpy_APP_DIR, "venv")
-    HFGCSpy_CONFIG_FILE = os.path.join(HFGCSpy_APP_DIR, "config.ini")
-    HFGCSpy_DB_PATH = os.path.join(HFGCSpy_APP_DIR, "data", "hfgcspy.db") # Derived DB path
-    HFGCSpy_LOG_PATH = os.path.join(HFGCSpy_APP_DIR, "logs", "hfgcspy.log") # Derived Log path
+    hfgcs_app_dir = app_dir_val
+    hfgcs_venv_dir = os.path.join(hfgcs_app_dir, "venv")
+    hfgcs_config_file = os.path.join(hfgcs_app_dir, "config.ini")
+    hfgcs_db_path = os.path.join(hfgcs_app_dir, "data", "hfgcspy.db") # Derived DB path
+    hfgcs_log_path = os.path.join(hfgcs_app_dir, "logs", "hfgcspy.log") # Derived Log path
     
-    WEB_ROOT_DIR = web_root_dir_val
-    # HFGCSpy_DATA_DIR is always created as a sub-directory of the web root
-    HFGCSpy_DATA_DIR = os.path.join(WEB_ROOT_DIR, "hfgcspy_data") 
-    HFGCSPY_RECORDINGS_PATH = os.path.join(HFGCSpy_DATA_DIR, "recordings")
-    HFGCSPY_CONFIG_JSON_PATH = os.path.join(HFGCSpy_DATA_DIR, "config.json")
+    web_root_dir = web_root_dir_val
+    # hfgcs_data_dir is always created as a sub-directory of the web root
+    hfgcs_data_dir = os.path.join(web_root_dir, "hfgcspy_data") 
+    hfgcs_recordings_path = os.path.join(hfgcs_data_dir, "recordings")
+    hfgcs_config_json_path = os.path.join(hfgcs_data_dir, "config.json")
 
 def load_paths_from_config():
     """Attempts to load installed paths from config.ini into global variables."""
@@ -136,7 +136,7 @@ def load_paths_from_config():
             if not app_dir_from_config: app_dir_from_config = APP_DIR_DEFAULT
 
             set_global_installation_paths(app_dir_from_config, web_root_dir_from_config)
-            log_info(f"Loaded install paths from config: App='{HFGCSpy_APP_DIR}', Web='{WEB_ROOT_DIR}'")
+            log_info(f"Loaded install paths from config: App='{hfgcs_app_dir}', Web='{web_root_dir}'")
             return True # Paths loaded successfully
         except configparser.Error as e:
             log_warn(f"Error reading config.ini for paths: {e}. Falling back to default paths.")
@@ -161,11 +161,11 @@ def prompt_for_paths():
     # Update global paths AFTER user input
     set_global_installation_paths(new_app_dir, new_web_root_dir)
     
-    log_info(f"HFGCSpy application will be installed to: {HFGCSpy_APP_DIR}")
-    log_info(f"HFGCSpy web UI will be hosted at: {WEB_ROOT_DIR}")
+    log_info(f"HFGCSpy application will be installed to: {hfgcs_app_dir}")
+    log_info(f"HFGCSpy web UI will be hosted at: {web_root_dir}")
 
 def install_system_and_python_deps():
-    # HFGCSpy_REPO is a module-level global constant, it's always available
+    # HFGCSPY_REPO is a module-level global constant, it's always available
     log_info("Updating package lists and installing core system dependencies...")
     run_command("apt update", shell=True)
     run_command([
@@ -188,41 +188,40 @@ def install_system_and_python_deps():
     run_command("update-initramfs -u", shell=True)
     log_info("Conflicting kernel modules blacklisted. A reboot might be required for this to take effect.")
 
-    log_info(f"Cloning HFGCSpy application from GitHub to {HFGCSpy_APP_DIR}...")
-    if os.path.exists(HFGCSpy_APP_DIR):
-        log_warn(f"HFGCSpy directory {HFGCSpy_APP_DIR} already exists. Skipping clone. Use --uninstall first if you want a fresh install.")
+    log_info(f"Cloning HFGCSpy application from GitHub to {hfgcs_app_dir}...")
+    if os.path.exists(hfgcs_app_dir):
+        log_warn(f"HFGCSpy directory {hfgcs_app_dir} already exists. Skipping clone. Use --uninstall first if you want a fresh install.")
         return False # Indicate that it was an no fresh clone
     else:
-        # FIX: Changed HFGCSpy_REPO to HFGCSPY_REPO to match the global constant
-        run_command(["git", "clone", HFGCSPY_REPO, HFGCSpy_APP_DIR]) 
+        run_command(["git", "clone", HFGCSPY_REPO, hfgcs_app_dir]) 
     
-    log_info(f"Setting up Python virtual environment in {HFGCSpy_VENV_DIR} and installing dependencies...")
-    run_command([sys.executable, "-m", "venv", HFGCSpy_VENV_DIR]) 
-    pip_path = os.path.join(HFGCSpy_VENV_DIR, "bin", "pip")
-    requirements_path = os.path.join(HFGCSpy_APP_DIR, "requirements.txt")
+    log_info(f"Setting up Python virtual environment in {hfgcs_venv_dir} and installing dependencies...")
+    run_command([sys.executable, "-m", "venv", hfgcs_venv_dir]) 
+    pip_path = os.path.join(hfgcs_venv_dir, "bin", "pip")
+    requirements_path = os.path.join(hfgcs_app_dir, "requirements.txt")
     run_command([pip_path, "install", "--upgrade", "pip"])
     run_command([pip_path, "install", "-r", requirements_path])
     return True # Indicate fresh clone
 
 def configure_hfgcspy_app():
     log_info("Configuring HFGCSpy application settings...")
-    # These directories are derived from HFGCSpy_APP_DIR
-    os.makedirs(os.path.dirname(HFGCSpy_DB_PATH), exist_ok=True)
-    os.makedirs(os.path.dirname(HFGCSpy_LOG_PATH), exist_ok=True)
+    # These directories are derived from hfgcs_app_dir
+    os.makedirs(os.path.dirname(hfgcs_db_path), exist_ok=True)
+    os.makedirs(os.path.dirname(hfgcs_log_path), exist_ok=True)
     
-    if not os.path.exists(HFGCSpy_CONFIG_FILE):
-        template_path = os.path.join(HFGCSpy_APP_DIR, "config.ini.template")
+    if not os.path.exists(hfgcs_config_file):
+        template_path = os.path.join(hfgcs_app_dir, "config.ini.template")
         if os.path.exists(template_path):
-            log_info(f"Copying {os.path.basename(template_path)} to {os.path.basename(HFGCSpy_CONFIG_FILE)}.")
-            shutil.copyfile(template_path, HFGCSpy_CONFIG_FILE)
+            log_info(f"Copying {os.path.basename(template_path)} to {os.path.basename(hfgcs_config_file)}.")
+            shutil.copyfile(template_path, hfgcs_config_file)
         else:
-            log_error(f"config.ini and config.ini.template not found in {HFGCSpy_APP_DIR}. Cannot proceed with app configuration.")
+            log_error(f"config.ini and config.ini.template not found in {hfgcs_app_dir}. Cannot proceed with app configuration.")
     else:
         log_info("Existing config.ini found. Using existing configuration. Please verify it points to correct paths.")
 
     # Update app_paths section in config.ini dynamically from current install paths
     config_obj = configparser.ConfigParser()
-    config_obj.read(HFGCSpy_CONFIG_FILE)
+    config_obj.read(hfgcs_config_file)
 
     if not config_obj.has_section('app_paths'):
         config_obj.add_section('app_paths')
@@ -249,32 +248,31 @@ def configure_hfgcspy_app():
 
 
     config_obj.set('app', 'mode', 'standalone') # Ensure mode is standalone
-    config_obj.set('app', 'database_path', HFGCSpy_DB_PATH) # Use the global derived path
-    config_obj.set('logging', 'log_file', HFGCSpy_LOG_PATH) # Use the global derived path
+    config_obj.set('app', 'database_path', hfgcs_db_path) # Use the global derived path
+    config_obj.set('logging', 'log_file', hfgcs_log_path) # Use the global derived path
 
     # Store absolute paths for web-accessible files in config.ini
-    config_obj.set('app_paths', 'status_file', os.path.join(HFGCSpy_DATA_DIR, "status.json"))
-    config_obj.set('app_paths', 'messages_file', os.path.join(HFGCSpy_DATA_DIR, "messages.json"))
-    # FIX: Corrected variable name from HFGCSpy_RECORDINGS_PATH to HFGCSPY_RECORDINGS_PATH
-    config_obj.set('app_paths', 'recordings_dir', HFGCSPY_RECORDINGS_PATH) # Recordings dir is directly served
-    config_obj.set('app_paths', 'config_json_file', HFGCSPY_CONFIG_JSON_PATH) # Use the global derived path
+    config_obj.set('app_paths', 'status_file', os.path.join(hfgcs_data_dir, "status.json"))
+    config_obj.set('app_paths', 'messages_file', os.path.join(hfgcs_data_dir, "messages.json"))
+    config_obj.set('app_paths', 'recordings_dir', hfgcs_recordings_path) # Recordings dir is directly served
+    config_obj.set('app_paths', 'config_json_file', hfgcs_config_json_path) # Use the global derived path
 
-    with open(HFGCSpy_CONFIG_FILE, 'w') as f:
+    with open(hfgcs_config_file, 'w') as f:
         config_obj.write(f)
-    log_info(f"Paths in config.ini updated: {HFGCSpy_CONFIG_FILE}")
+    log_info(f"Paths in config.ini updated: {hfgcs_config_file}")
 
     # Set up user/group ownership for app directory for proper file access by service
     hfgcs_user = os.getenv("SUDO_USER") or "pi" # Get original user for ownership
-    log_info(f"Setting ownership of {HFGCSpy_APP_DIR} to {hfgcs_user}...")
-    run_command(["chown", "-R", f"{hfgcs_user}:{hfgcs_user}", HFGCSpy_APP_DIR])
-    run_command(["chmod", "-R", "u+rwX,go-w", HFGCSpy_APP_DIR]) # Restrict write from others
+    log_info(f"Setting ownership of {hfgcs_app_dir} to {hfgcs_user}...")
+    run_command(["chown", "-R", f"{hfgcs_user}:{hfgcs_user}", hfgcs_app_dir])
+    run_command(["chmod", "-R", "u+rwX,go-w", hfgcs_app_dir]) # Restrict write from others
 
     # Create web-accessible data directories and set permissions for Apache
-    log_info(f"Creating web-accessible data directories: {HFGCSpy_DATA_DIR} and {HFGCSPY_RECORDINGS_PATH}.")
-    os.makedirs(HFGCSpy_DATA_DIR, exist_ok=True)
-    os.makedirs(HFGCSPY_RECORDINGS_PATH, exist_ok=True)
-    run_command(["chown", "-R", "www-data:www-data", HFGCSpy_DATA_DIR])
-    run_command(["chmod", "-R", "775", HFGCSpy_DATA_DIR]) # Allow www-data write, others read/execute
+    log_info(f"Creating web-accessible data directories: {hfgcs_data_dir} and {hfgcs_recordings_path}.")
+    os.makedirs(hfgcs_data_dir, exist_ok=True)
+    os.makedirs(hfgcs_recordings_path, exist_ok=True)
+    run_command(["chown", "-R", "www-data:www-data", hfgcs_data_dir])
+    run_command(["chmod", "-R", "775", hfgcs_data_dir]) # Allow www-data write, others read/execute
 
     log_info("HFGCSpy application configured.")
 
@@ -293,25 +291,25 @@ def configure_apache2_webui():
     log_info("Enabling Apache2 modules: headers, ssl, proxy, proxy_http...")
     run_command("a2enmod headers ssl proxy proxy_http", shell=True, check_return=False)
 
-    log_info(f"Copying HFGCSpy web UI files to Apache web root: {WEB_ROOT_DIR}")
-    if os.path.exists(WEB_ROOT_DIR):
-        log_warn(f"Existing web UI directory {WEB_ROOT_DIR} found. Removing contents before copying new files.")
-        shutil.rmtree(WEB_ROOT_DIR) # Clean up previous install if any
-    os.makedirs(WEB_ROOT_DIR, exist_ok=True)
+    log_info(f"Copying HFGCSpy web UI files to Apache web root: {web_root_dir}")
+    if os.path.exists(web_root_dir):
+        log_warn(f"Existing web UI directory {web_root_dir} found. Removing contents before copying new files.")
+        shutil.rmtree(web_root_dir) # Clean up previous install if any
+    os.makedirs(web_root_dir, exist_ok=True)
     
     # Copy contents of web_ui directory
-    src_web_ui_dir = os.path.join(HFGCSpy_APP_DIR, "web_ui")
+    src_web_ui_dir = os.path.join(hfgcs_app_dir, "web_ui")
     for item in os.listdir(src_web_ui_dir):
         s = os.path.join(src_web_ui_dir, item)
-        d = os.path.join(WEB_ROOT_DIR, item)
+        d = os.path.join(web_root_dir, item)
         if os.path.isdir(s):
             shutil.copytree(s, d, dirs_exist_ok=True)
         else:
             shutil.copy2(s, d)
 
     # Ensure Apache has correct ownership/permissions
-    run_command(["chown", "-R", "www-data:www-data", WEB_ROOT_DIR])
-    run_command(["chmod", "-R", "755", WEB_ROOT_DIR])
+    run_command(["chown", "-R", "www-data:www-data", web_root_dir])
+    run_command(["chmod", "-R", "755", web_root_dir])
 
     server_ip = run_command(["hostname", "-I"], capture_output=True).split()[0]
     user_server_name = input(f"Enter the domain name or IP address to access HFGCSpy web UI (default: {server_ip}): ").strip()
@@ -367,16 +365,16 @@ def configure_apache2_webui():
     apache_conf_content = f"""
 <VirtualHost *:80>
     ServerName {server_name}
-    DocumentRoot {WEB_ROOT_DIR}
+    DocumentRoot {web_root_dir}
 
-    <Directory {WEB_ROOT_DIR}>
+    <Directory {web_root_dir}>
         Options Indexes FollowSymLinks
         AllowOverride None
         Require all granted
     </Directory>
 
-    Alias /hfgcspy_data "{HFGCSpy_DATA_DIR}"
-    <Directory "{HFGCSpy_DATA_DIR}">
+    Alias /hfgcspy_data "{hfgcs_data_dir}"
+    <Directory "{hfgcs_data_dir}">
         Options Indexes FollowSymLinks
         AllowOverride None
         Require all granted
@@ -390,16 +388,16 @@ def configure_apache2_webui():
         apache_conf_content += f"""
 <VirtualHost *:443>
     ServerName {server_name}
-    DocumentRoot {WEB_ROOT_DIR}
+    DocumentRoot {web_root_dir}
 
-    <Directory {WEB_ROOT_DIR}>
+    <Directory {web_root_dir}>
         Options Indexes FollowSymLinks
         AllowOverride None
         Require all granted
     </Directory>
 
-    Alias /hfgcspy_data "{HFGCSpy_DATA_DIR}"
-    <Directory "{HFGCSpy_DATA_DATA}">
+    Alias /hfgcspy_data "{hfgcs_data_dir}"
+    <Directory "{hfgcs_data_dir}">
         Options Indexes FollowSymLinks
         AllowOverride None
         Require all granted
@@ -453,8 +451,8 @@ Description=HFGCSpy SDR Scanner and Parser
 After=network.target
 
 [Service]
-WorkingDirectory={HFGCSpy_APP_DIR}
-ExecStart={os.path.join(HFGCSpy_VENV_DIR, "bin", "python3")} {os.path.join(HFGCSpy_APP_DIR, "hfgcs.py")} --run
+WorkingDirectory={hfgcs_app_dir}
+ExecStart={os.path.join(hfgcs_venv_dir, "bin", "python3")} {os.path.join(hfgcs_app_dir, "hfgcs.py")} --run
 StandardOutput=inherit
 StandardError=inherit
 Restart=always
@@ -469,53 +467,53 @@ WantedBy=multi-user.target
     run_command(["systemctl", "daemon-reload"])
     
     if ask_yes_no("Do you want HFGCSpy to start automatically at machine boot? (Recommended: Yes)"):
-        run_command(["systemctl", "enable", HFGCSpy_SERVICE_NAME])
+        run_command(["systemctl", "enable", HFGCSPY_SERVICE_NAME])
         log_info("HFGCSpy service enabled to start automatically at boot.")
     else:
-        run_command(["systemctl", "disable", HFGCSpy_SERVICE_NAME])
+        run_command(["systemctl", "disable", HFGCSPY_SERVICE_NAME])
         log_info(f"HFGCSpy service will NOT start automatically at boot. You'll need to start it manually: sudo systemctl start {HFGCSPY_SERVICE_NAME}")
 
-    run_command(["systemctl", "start", HFGCSpy_SERVICE_NAME])
+    run_command(["systemctl", "start", HFGCSPY_SERVICE_NAME])
     log_info("HFGCSpy service setup and started.")
 
 def update_hfgcspy_app_code():
     log_info("Stopping HFGCSpy service for update...")
-    run_command(["systemctl", "stop", HFGCSpy_SERVICE_NAME], check_return=False)
+    run_command(["systemctl", "stop", HFGCSPY_SERVICE_NAME], check_return=False)
     
-    if not os.path.exists(HFGCSpy_APP_DIR):
-        log_error(f"HFGCSpy application directory {HFGCSpy_APP_DIR} not found. Please run --install first.")
+    if not os.path.exists(hfgcs_app_dir):
+        log_error(f"HFGCSpy application directory {hfgcs_app_dir} not found. Please run --install first.")
     
-    log_info(f"Pulling latest changes from HFGCSpy repository in {HFGCSpy_APP_DIR}...")
+    log_info(f"Pulling latest changes from HFGCSpy repository in {hfgcs_app_dir}...")
     current_dir = os.getcwd() # Save current working directory
-    os.chdir(HFGCSpy_APP_DIR) # Change to app dir for git pull
+    os.chdir(hfgcs_app_dir) # Change to app dir for git pull
     run_command(["git", "pull"])
     os.chdir(current_dir) # Change back
     
 
     log_info("Reinstalling Python dependencies (if any new ones exist)...")
-    pip_path = os.path.join(HFGCSpy_VENV_DIR, "bin", "pip")
-    requirements_path = os.path.join(HFGCSpy_APP_DIR, "requirements.txt")
+    pip_path = os.path.join(hfgcs_venv_dir, "bin", "pip")
+    requirements_path = os.path.join(hfgcs_app_dir, "requirements.txt")
     run_command([pip_path, "install", "-r", requirements_path])
 
-    log_info(f"Re-copying web UI files to Apache web root: {WEB_ROOT_DIR}...")
-    if os.path.exists(WEB_ROOT_DIR):
-        shutil.rmtree(WEB_ROOT_DIR) # Clean up old files
-    os.makedirs(WEB_ROOT_DIR, exist_ok=True)
+    log_info(f"Re-copying web UI files to Apache web root: {web_root_dir}...")
+    if os.path.exists(web_root_dir):
+        shutil.rmtree(web_root_dir) # Clean up old files
+    os.makedirs(web_root_dir, exist_ok=True)
     # Copy contents of web_ui directory
-    src_web_ui_dir = os.path.join(HFGCSpy_APP_DIR, "web_ui")
+    src_web_ui_dir = os.path.join(hfgcs_app_dir, "web_ui")
     for item in os.listdir(src_web_ui_dir):
         s = os.path.join(src_web_ui_dir, item)
-        d = os.path.join(WEB_ROOT_DIR, item)
+        d = os.path.join(web_root_dir, item)
         if os.path.isdir(s):
             shutil.copytree(s, d, dirs_exist_ok=True)
         else:
             shutil.copy2(s, d)
 
-    run_command(["chown", "-R", "www-data:www-data", WEB_ROOT_DIR])
-    run_command(["chmod", "-R", "755", WEB_ROOT_DIR])
+    run_command(["chown", "-R", "www-data:www-data", web_root_dir])
+    run_command(["chmod", "-R", "755", web_root_dir])
     
     log_info(f"Restarting HFGCSpy service {HFGCSPY_SERVICE_NAME}...")
-    run_command(["systemctl", "start", HFGCSpy_SERVICE_NAME])
+    run_command(["systemctl", "start", HFGCSPY_SERVICE_NAME])
     log_info("HFGCSpy updated and restarted.")
     log_info("Remember to restart Apache2 if there were any issues or config changes: sudo systemctl restart apache2")
 
@@ -544,8 +542,8 @@ def check_sdr():
 
 def uninstall_hfgcspy():
     log_warn(f"Stopping and disabling HFGCSpy service {HFGCSPY_SERVICE_NAME}...")
-    run_command(["systemctl", "stop", HFGCSpy_SERVICE_NAME], check_return=False)
-    run_command(["systemctl", "disable", HFGCSpy_SERVICE_NAME], check_return=False)
+    run_command(["systemctl", "stop", HFGCSPY_SERVICE_NAME], check_return=False)
+    run_command(["systemctl", "disable", HFGCSPY_SERVICE_NAME], check_return=False)
     if os.path.exists(f"/etc/systemd/system/{HFGCSPY_SERVICE_NAME}"):
         os.remove(f"/etc/systemd/system/{HFGCSPY_SERVICE_NAME}")
     run_command("systemctl daemon-reload", shell=True)
@@ -553,17 +551,17 @@ def uninstall_hfgcspy():
     # Ensure paths are set before attempting to remove
     load_paths_from_config() # Attempt to load installed paths, if not, uses defaults
 
-    if os.path.exists(HFGCSpy_APP_DIR):
-        log_warn(f"Removing HFGCSpy application directory: {HFGCSpy_APP_DIR}...")
-        shutil.rmtree(HFGCSpy_APP_DIR)
+    if os.path.exists(hfgcs_app_dir):
+        log_warn(f"Removing HFGCSpy application directory: {hfgcs_app_dir}...")
+        shutil.rmtree(hfgcs_app_dir)
     else:
-        log_warn(f"HFGCSpy application directory {HFGCSpy_APP_DIR} not found. Skipping removal.")
+        log_warn(f"HFGCSpy application directory {hfgcs_app_dir} not found. Skipping removal.")
 
-    if os.path.exists(WEB_ROOT_DIR):
-        log_warn(f"Removing Apache2 web UI directory: {WEB_ROOT_DIR}...")
-        shutil.rmtree(WEB_ROOT_DIR)
+    if os.path.exists(web_root_dir):
+        log_warn(f"Removing Apache2 web UI directory: {web_root_dir}...")
+        shutil.rmtree(web_root_dir)
     else:
-        log_warn(f"Apache2 web UI directory {WEB_ROOT_DIR} not found. Skipping removal.")
+        log_warn(f"Apache2 web UI directory {web_root_dir} not found. Skipping removal.")
 
     log_warn("Removing Apache2 configuration for HFGCSpy web UI (if it exists)...")
     run_command(["a2dissite", "hfgcspy.conf"], check_return=False)
@@ -579,8 +577,8 @@ def uninstall_hfgcspy():
 def run_hfgcspy():
     """Runs the main hfgcs.py application (for debugging/manual start)."""
     log_info("Attempting to run HFGCSpy application directly...")
-    python_exec = os.path.join(HFGCSpy_VENV_DIR, "bin", "python3")
-    hfgcs_script = os.path.join(HFGCSpy_APP_DIR, "hfgcs.py")
+    python_exec = os.path.join(hfgcs_venv_dir, "bin", "python3")
+    hfgcs_script = os.path.join(hfgcs_app_dir, "hfgcs.py")
     if not os.path.exists(python_exec):
         log_error(f"Python virtual environment executable not found at {python_exec}. Is HFGCSpy installed?")
     if not os.path.exists(hfgcs_script):
@@ -592,13 +590,13 @@ def run_hfgcspy():
 def stop_hfgcspy():
     """Stops the HFGCSpy service."""
     log_info("Stopping HFGCSpy service...")
-    run_command(["systemctl", "stop", HFGCSpy_SERVICE_NAME], check_return=False)
+    run_command(["systemctl", "stop", HFGCSPY_SERVICE_NAME], check_return=False)
     log_info("HFGCSpy service stopped (if it was running).")
 
 def status_hfgcspy():
     """Checks the status of HFGCSpy and Apache2 services."""
     log_info("Checking HFGCSpy service status:")
-    run_command(["systemctl", "status", HFGCSpy_SERVICE_NAME], check_return=False)
+    run_command(["systemctl", "status", HFGCSPY_SERVICE_NAME], check_return=False)
     log_info("\nChecking Apache2 service status:")
     run_command(["systemctl", "status", "apache2"], check_return=False)
 
@@ -610,8 +608,8 @@ def main():
     # For --install, prompt_for_paths() will update them.
     # For other commands, load_paths_from_config() will attempt to update them.
     # This structure ensures they always have *some* value before being used.
-    global HFGCSpy_APP_DIR, HFGCSpy_VENV_DIR, HFGCSpy_CONFIG_FILE, HFGCSpy_DB_PATH, HFGCSpy_LOG_PATH
-    global WEB_ROOT_DIR, HFGCSpy_DATA_DIR, HFGCSPY_RECORDINGS_PATH, HFGCSPY_CONFIG_JSON_PATH
+    global hfgcs_app_dir, hfgcs_venv_dir, hfgcs_config_file, hfgcs_db_path, hfgcs_log_path
+    global web_root_dir, hfgcs_data_dir, hfgcs_recordings_path, hfgcs_config_json_path
 
     log_info(f"HFGCSpy Installer (Version: {__version__})")
 
