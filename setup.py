@@ -1,7 +1,7 @@
 # HFGCSpy/setup.py
 # Python-based installer for HFGCSpy application.
 # This script handles all installation, configuration, and service management.
-# Version: 1.2.20 # Version bump for Apache config and directory creation debugging
+# Version: 1.2.22 # Version bump for first-run logic and robustness
 
 import os
 import sys
@@ -12,10 +12,10 @@ import re
 import argparse
 
 # --- Script Version ---
-__version__ = "1.2.20" # Updated version
+__version__ = "1.2.22" # Updated version
 
 # --- Configuration Constants (Defined at module top-level for absolute clarity and immediate availability) ---
-HFGCSPY_REPO = "https://github.com/sworrl/HFGCSpy.git" # IMPORTANT: Ensure this is correct!
+HFGCSPY_REPO = "https://raw.githubusercontent.com/sworrl/HFGCSpy/main" # Base URL for raw files
 HFGCSPY_SERVICE_NAME = "hfgcspy.service" # Service name is constant
 
 # Default base installation directories (THESE ARE THE TRUE CONSTANTS, always available)
@@ -123,8 +123,8 @@ def load_paths_from_config():
             web_root_dir_from_config = WEB_ROOT_DIR_DEFAULT # Default fallback
             if config_read.has_section('app_paths') and config_read.has_option('app_paths', 'status_file'):
                 full_status_path = config_read.get('app_paths', 'status_file')
-                # Regex to extract the part before /hfgcspy_data/status.json
-                match = re.search(r"^(.*)/hfgcspy_data/status\.json$", full_status_path)
+                # Regex to extract the part before /hfgcs_data/status.json
+                match = re.search(r"^(.*)/hfgcs_data/status\.json$", full_status_path)
                 if match:
                     web_root_dir_from_config = match.group(1)
                 else:
@@ -165,8 +165,22 @@ def prompt_for_paths():
     log_info(f"HFGCSpy web UI will be hosted at: {web_root_dir}")
 
 def install_system_and_python_deps():
-    # HFGCSPY_REPO is a module-level global constant, it's always available
-    log_info("Updating package lists and installing core system dependencies...")
+    # Define a marker file to indicate if system-level dependencies have been installed
+    install_marker_file = os.path.join(hfgcs_app_dir, ".hfgcspy_system_installed")
+
+    if os.path.exists(install_marker_file):
+        log_info("System dependencies and RTL-SDR tools appear to be already installed. Skipping.")
+        # Check if the marker file version matches current script version, for future-proofing updates
+        try:
+            with open(install_marker_file, 'r') as f:
+                installed_version = f.read().strip()
+            if installed_version != __version__:
+                log_warn(f"System dependencies marker file version ({installed_version}) does not match script version ({__version__}). Consider re-running with --force-system-install if issues arise.")
+        except Exception as e:
+            log_warn(f"Could not read system install marker file: {e}. Proceeding assuming installed.")
+        return False # Indicate no fresh system install
+
+    log_info("Performing initial system dependency installation (this may take a while)...")
     run_command("apt update", shell=True)
     run_command([
         "apt", "install", "-y", 
@@ -188,10 +202,16 @@ def install_system_and_python_deps():
     run_command("update-initramfs -u", shell=True)
     log_info("Conflicting kernel modules blacklisted. A reboot might be required for this to take effect.")
 
+    # Create the marker file after successful system-level installation
+    os.makedirs(os.path.dirname(install_marker_file), exist_ok=True)
+    with open(install_marker_file, 'w') as f:
+        f.write(__version__)
+    log_info(f"System dependencies installation marked by {install_marker_file}.")
+
     log_info(f"Cloning HFGCSpy application from GitHub to {hfgcs_app_dir}...")
     if os.path.exists(hfgcs_app_dir):
         log_warn(f"HFGCSpy directory {hfgcs_app_dir} already exists. Skipping clone. Use --uninstall first if you want a fresh install.")
-        return False # Indicate that it was an no fresh clone
+        return False # Indicate that it was not a fresh clone
     else:
         run_command(["git", "clone", HFGCSPY_REPO, hfgcs_app_dir]) 
     
@@ -438,7 +458,8 @@ def configure_apache2_webui():
     with open(apache_conf_path, "w") as f:
         f.write(apache_conf_content)
 
-    run_command(["a2dissite", "000-default.conf"], check_return=False) # Disable default Apache page
+    # Use check_return=False for a2dissite as it might fail if 000-default.conf doesn't exist
+    run_command(["a2dissite", "000-default.conf"], check_return=False) 
     run_command(["a2ensite", os.path.basename(apache_conf_path)]) # Enable HFGCSpy site
     
     run_command(["systemctl", "restart", "apache2"])
