@@ -1,7 +1,7 @@
 # HFGCSpy/setup.py
 # Python-based installer for HFGCSpy application.
 # This script handles all installation, configuration, and service management.
-# Version: 1.2.4 # Version bump for this fix
+# Version: 1.2.5 # Version bump for this fix
 
 import os
 import sys
@@ -12,7 +12,7 @@ import re
 import argparse
 
 # --- Script Version ---
-__version__ = "1.2.4" # Updated version
+__version__ = "1.2.5" # Updated version
 
 # --- Configuration Variables (Defaults - always initialized) ---
 HFGCSPY_REPO = "https://github.com/sworrl/HFGCSpy.git" # IMPORTANT: Ensure this is correct!
@@ -21,17 +21,17 @@ HFGCSPY_REPO = "https://github.com/sworrl/HFGCSpy.git" # IMPORTANT: Ensure this 
 DEFAULT_APP_DIR = "/opt/hfgcspy"
 DEFAULT_WEB_ROOT_DIR = "/var/www/html/hfgcspy"
 
-# Global variables, initialized with defaults, possibly updated later by prompts or config loading
-# Ensure all global path variables are initialized here
-HFGCSPY_APP_DIR = DEFAULT_APP_DIR
-HFGCSPY_VENV_DIR = os.path.join(HFGCSPY_APP_DIR, "venv")
-HFGCSPY_CONFIG_FILE = os.path.join(HFGCSPY_APP_DIR, "config.ini")
+# Global variables, declared but not fully initialized here as they depend on execution context
+# They will be set by _set_global_derived_paths()
+HFGCSPY_APP_DIR = "" 
+HFGCSPY_VENV_DIR = ""
+HFGCSPY_CONFIG_FILE = ""
 HFGCSPY_SERVICE_NAME = "hfgcspy.service"
 
-WEB_ROOT_DIR = DEFAULT_WEB_ROOT_DIR
-HFGCSPY_DATA_DIR = os.path.join(WEB_ROOT_DIR, "hfgcspy_data")
-HFGCSPY_RECORDINGS_PATH = os.path.join(HFGCSPY_DATA_DIR, "recordings")
-HFGCSPY_CONFIG_JSON_PATH = os.path.join(HFGCSpy_DATA_DIR, "config.json") # This needs HFGCSpy_DATA_DIR
+WEB_ROOT_DIR = ""
+HFGCSPY_DATA_DIR = ""
+HFGCSPY_RECORDINGS_PATH = ""
+HFGCSPY_CONFIG_JSON_PATH = ""
 
 
 # --- Helper Functions ---
@@ -59,11 +59,9 @@ def ask_yes_no(question):
 def run_command(command, check_return=True, capture_output=False, shell=False):
     log_info(f"Executing: {' '.join(command) if isinstance(command, list) else command}")
     try:
-        # Use shell=True for commands with pipes or redirects often found in apt/bash calls
-        # Use current sys.executable for python calls to ensure correct interpreter
-        if isinstance(command, list) and command[0] == sys.executable: # Check if it's explicitly python call
+        if isinstance(command, list) and (command[0] == sys.executable or command[0].endswith("/python3") or command[0].endswith("/pip")): 
              result = subprocess.run(command, check=check_return, capture_output=capture_output, text=True)
-        else: # For shell commands
+        else:
             result = subprocess.run(command, check=check_return, capture_output=capture_output, text=True, shell=shell)
         if capture_output:
             return result.stdout.strip()
@@ -79,33 +77,86 @@ def check_root():
     if os.geteuid() != 0:
         log_error("This script must be run with sudo. Please run: sudo python3 setup.py --install")
 
+# --- Path Management Functions ---
+
+def _set_global_derived_paths(app_dir, web_root_dir):
+    """Sets all global derived path variables based on base app and web root dirs."""
+    global HFGCSpy_APP_DIR, HFGCSpy_VENV_DIR, HFGCSpy_CONFIG_FILE
+    global WEB_ROOT_DIR, HFGCSpy_DATA_DIR, HFGCSpy_RECORDINGS_PATH, HFGCSpy_CONFIG_JSON_PATH
+
+    HFGCSpy_APP_DIR = app_dir
+    HFGCSpy_VENV_DIR = os.path.join(HFGCSpy_APP_DIR, "venv")
+    HFGCSpy_CONFIG_FILE = os.path.join(HFGCSpy_APP_DIR, "config.ini")
+    
+    WEB_ROOT_DIR = web_root_dir
+    HFGCSpy_DATA_DIR = os.path.join(WEB_ROOT_DIR, "hfgcspy_data")
+    HFGCSPY_RECORDINGS_PATH = os.path.join(HFGCSpy_DATA_DIR, "recordings")
+    HFGCSPY_CONFIG_JSON_PATH = os.path.join(HFGCSpy_DATA_DIR, "config.json") # This line is now safe
+
+def _load_paths_from_config():
+    """Attempts to load installed paths from config.ini into global variables."""
+    global HFGCSpy_APP_DIR, HFGCSpy_VENV_DIR, HFGCSpy_CONFIG_FILE
+    global WEB_ROOT_DIR, HFGCSpy_DATA_DIR, HFGCSpy_RECORDINGS_PATH, HFGCSpy_CONFIG_JSON_PATH
+
+    config_read = configparser.ConfigParser()
+    
+    # Try to read config from DEFAULT_APP_DIR first
+    installed_config_path = os.path.join(DEFAULT_APP_DIR, "config.ini")
+    if os.path.exists(installed_config_path):
+        try:
+            config_read.read(installed_config_path)
+            
+            # Extract basic app_dir (which is DEFAULT_APP_DIR)
+            app_dir_from_config = DEFAULT_APP_DIR
+
+            # Extract web_root_dir using a known path from config.ini (e.g., status_file)
+            # stored as absolute path
+            web_root_dir_from_config = DEFAULT_WEB_ROOT_DIR # Fallback
+            if config_read.has_section('app_paths') and config_read.has_option('app_paths', 'status_file'):
+                full_status_path = config_read.get('app_paths', 'status_file')
+                # Regex to find /var/www/html/hfgcspy from /var/www/html/hfgcspy/hfgcspy_data/status.json
+                match = re.search(r"(/.*)/hfgcspy_data/status\.json$", full_status_path)
+                if match:
+                    web_root_dir_from_config = match.group(1)
+                else:
+                    log_warn(f"Could not reliably deduce WEB_ROOT_DIR from status_file path in config.ini: {full_status_path}. Using default.")
+            else:
+                log_warn("app_paths section or status_file option missing in config.ini. Using default WEB_ROOT_DIR.")
+
+            _set_global_derived_paths(app_dir_from_config, web_root_dir_from_config)
+            log_info(f"Loaded install paths from config: App='{HFGCSpy_APP_DIR}', Web='{WEB_ROOT_DIR}'")
+            return True # Paths loaded successfully
+        except configparser.Error as e:
+            log_warn(f"Error reading config.ini for paths: {e}. Falling back to default paths.")
+            _set_global_derived_paths(DEFAULT_APP_DIR, DEFAULT_WEB_ROOT_DIR)
+            return False
+    else:
+        log_warn("config.ini not found at default app directory. Using default paths.")
+        _set_global_derived_paths(DEFAULT_APP_DIR, DEFAULT_WEB_ROOT_DIR)
+        return False
+
 # --- Installation Steps ---
 
 def prompt_for_paths():
     # Use global to update variables defined at the module level
-    global HFGCSpy_APP_DIR, HFGCSpy_VENV_DIR, HFGCSpy_CONFIG_FILE
-    global WEB_ROOT_DIR, HFGCSpy_DATA_DIR, HFGCSpy_RECORDINGS_PATH, HFGCSpy_CONFIG_JSON_PATH
+    global HFGCSpy_APP_DIR, WEB_ROOT_DIR
 
     log_info("Determining HFGCSpy installation paths:")
 
     user_app_dir = input(f"Enter desired application installation directory (default: {DEFAULT_APP_DIR}): ").strip()
-    HFGCSPY_APP_DIR = user_app_dir if user_app_dir else DEFAULT_APP_DIR
-    HFGCSPY_VENV_DIR = os.path.join(HFGCSPY_APP_DIR, "venv")
-    HFGCSPY_CONFIG_FILE = os.path.join(HFGCSPY_APP_DIR, "config.ini")
+    new_app_dir = user_app_dir if user_app_dir else DEFAULT_APP_DIR
     
-    log_info(f"HFGCSpy application will be installed to: {HFGCSPY_APP_DIR}")
-
     user_web_root_dir = input(f"Enter desired web UI hosting directory (default: {DEFAULT_WEB_ROOT_DIR}): ").strip()
-    WEB_ROOT_DIR = user_web_root_dir if user_web_root_dir else DEFAULT_WEB_ROOT_DIR
-    HFGCSPY_DATA_DIR = os.path.join(WEB_ROOT_DIR, "hfgcspy_data")
-    HFGCSPY_RECORDINGS_PATH = os.path.join(HFGCSPY_DATA_DIR, "recordings")
-    HFGCSPY_CONFIG_JSON_PATH = os.path.join(HFGCSPY_DATA_DIR, "config.json")
+    new_web_root_dir = user_web_root_dir if user_web_root_dir else DEFAULT_WEB_ROOT_DIR
     
+    # Update global paths AFTER user input
+    _set_global_derived_paths(new_app_dir, new_web_root_dir)
+    
+    log_info(f"HFGCSpy application will be installed to: {HFGCSpy_APP_DIR}")
     log_info(f"HFGCSpy web UI will be hosted at: {WEB_ROOT_DIR}")
 
 def install_system_and_python_deps():
     log_info("Updating package lists and installing core system dependencies...")
-    # Use shell=True for apt update to handle redirects/complexities correctly
     run_command("apt update", shell=True)
     run_command([
         "apt", "install", "-y", 
@@ -123,19 +174,18 @@ def install_system_and_python_deps():
         f.write("blacklist dvb_usb_rtl28xxu\n")
         f.write("blacklist rtl2832\n")
         f.write("blacklist rtl2830\n")
-    run_command("depmod -a", shell=True) # Use shell=True for depmod
-    run_command("update-initramfs -u", shell=True) # Use shell=True for update-initramfs
+    run_command("depmod -a", shell=True)
+    run_command("update-initramfs -u", shell=True)
     log_info("Conflicting kernel modules blacklisted. A reboot might be required for this to take effect.")
 
-    log_info(f"Cloning HFGCSpy application from GitHub to {HFGCSPY_APP_DIR}...")
-    if os.path.exists(HFGCSPY_APP_DIR):
-        log_warn(f"HFGCSpy directory {HFGCSPY_APP_DIR} already exists. Skipping clone. Use --uninstall first if you want a fresh install.")
+    log_info(f"Cloning HFGCSpy application from GitHub to {HFGCSpy_APP_DIR}...")
+    if os.path.exists(HFGCSpy_APP_DIR):
+        log_warn(f"HFGCSpy directory {HFGCSpy_APP_DIR} already exists. Skipping clone. Use --uninstall first if you want a fresh install.")
         return False # Indicate that it was an no fresh clone
     else:
         run_command(["git", "clone", HFGCSpy_REPO, HFGCSpy_APP_DIR])
     
     log_info(f"Setting up Python virtual environment in {HFGCSpy_VENV_DIR} and installing dependencies...")
-    # Explicitly use sys.executable to ensure we're using the python3 that ran this script
     run_command([sys.executable, "-m", "venv", HFGCSpy_VENV_DIR]) 
     pip_path = os.path.join(HFGCSpy_VENV_DIR, "bin", "pip")
     requirements_path = os.path.join(HFGCSpy_APP_DIR, "requirements.txt")
@@ -145,8 +195,8 @@ def install_system_and_python_deps():
 
 def configure_hfgcspy_app():
     log_info("Configuring HFGCSpy application settings...")
-    os.makedirs(os.path.dirname(HFGCSPY_DB_PATH), exist_ok=True)
-    os.makedirs(os.path.dirname(HFGCSPY_LOG_PATH), exist_ok=True)
+    os.makedirs(os.path.dirname(HFGCSpy_DB_PATH), exist_ok=True)
+    os.makedirs(os.path.dirname(HFGCSpy_LOG_PATH), exist_ok=True)
     
     if not os.path.exists(HFGCSpy_CONFIG_FILE):
         template_path = os.path.join(HFGCSpy_APP_DIR, "config.ini.template")
@@ -374,7 +424,7 @@ Description=HFGCSpy SDR Scanner and Parser
 After=network.target
 
 [Service]
-WorkingDirectory={HFGCSPY_APP_DIR}
+WorkingDirectory={HFGCSpy_APP_DIR}
 ExecStart={os.path.join(HFGCSpy_VENV_DIR, "bin", "python3")} {os.path.join(HFGCSpy_APP_DIR, "hfgcs.py")} --run
 StandardOutput=inherit
 StandardError=inherit
@@ -396,7 +446,7 @@ WantedBy=multi-user.target
         run_command(["systemctl", "disable", HFGCSpy_SERVICE_NAME])
         log_info(f"HFGCSpy service will NOT start automatically at boot. You'll need to start it manually: sudo systemctl start {HFGCSPY_SERVICE_NAME}")
 
-    run_command(["systemctl", "start", HFGCSPY_SERVICE_NAME])
+    run_command(["systemctl", "start", HFGCSpy_SERVICE_NAME])
     log_info("HFGCSpy service setup and started.")
 
 def update_hfgcspy_app_code():
@@ -509,55 +559,20 @@ def main():
     
     args = parser.parse_args()
 
-    # --- Path Initialization ---
-    # Global variables are initialized at the module level with DEFAULT values.
-    # We only update them here if we are performing an 'install' operation based on user input,
-    # or if we are loading existing paths from a config file for other operations.
+    # --- Path Initialization for main execution flow ---
+    # These global variables are initialized at the module level.
+    # For --install, prompt_for_paths() will update them.
+    # For other commands, _load_paths_from_config() will attempt to update them.
+    # This structure ensures they always have *some* value before being used.
     global HFGCSpy_APP_DIR, HFGCSpy_VENV_DIR, HFGCSpy_CONFIG_FILE
     global WEB_ROOT_DIR, HFGCSpy_DATA_DIR, HFGCSpy_RECORDINGS_PATH, HFGCSpy_CONFIG_JSON_PATH
 
     log_info(f"HFGCSpy Installer (Version: {__version__})")
 
-    # If not an install, attempt to load paths from existing config.ini
+    # If not performing a fresh install, attempt to load paths from existing config.ini
+    # This ensures commands like --status, --stop, --update etc. know where the app is installed.
     if not args.install:
-        if os.path.exists(DEFAULT_APP_DIR) and os.path.exists(os.path.join(DEFAULT_APP_DIR, "config.ini")):
-            temp_config = configparser.ConfigParser()
-            try:
-                temp_config.read(os.path.join(DEFAULT_APP_DIR, "config.ini"))
-                
-                # Update global app paths from config if they exist
-                HFGCSpy_APP_DIR = DEFAULT_APP_DIR # Base is still default for config location
-                HFGCSPY_VENV_DIR = os.path.join(HFGCSpy_APP_DIR, "venv")
-                HFGCSPY_CONFIG_FILE = os.path.join(HFGCSpy_APP_DIR, "config.ini")
-
-                if temp_config.has_section('app_paths'):
-                    # Reconstruct WEB_ROOT_DIR from the known absolute paths stored in config.ini
-                    if temp_config.has_option('app_paths', 'status_file'):
-                        full_status_path = temp_config.get('app_paths', 'status_file')
-                        # The `status_file` is stored as an absolute path like `/var/www/html/hfgcspy/hfgcspy_data/status.json`
-                        # We need to extract `/var/www/html/hfgcspy` (WEB_ROOT_DIR) from this.
-                        match = re.search(r"(/.*)/hfgcspy_data/status.json$", full_status_path)
-                        if match:
-                            WEB_ROOT_DIR = match.group(1)
-                        else:
-                            # Fallback if the path structure is unexpected (e.g., config malformed)
-                            WEB_ROOT_DIR = DEFAULT_WEB_ROOT_DIR
-                            log_warn(f"Could not deduce WEB_ROOT_DIR from config.ini. Falling back to {DEFAULT_WEB_ROOT_DIR}.")
-                        
-                        HFGCSPY_DATA_DIR = os.path.join(WEB_ROOT_DIR, "hfgcspy_data")
-                        # These should be absolute paths from config.ini
-                        HFGCSPY_RECORDINGS_PATH = temp_config.get('app_paths', 'recordings_dir', fallback=os.path.join(HFGCSPY_DATA_DIR, "recordings"))
-                        HFGCSPY_CONFIG_JSON_PATH = temp_config.get('app_paths', 'config_json_file', fallback=os.path.join(HFGCSPY_DATA_DIR, "config.json"))
-
-                        log_info(f"Loaded install paths from config: App={HFGCSpy_APP_DIR}, Web={WEB_ROOT_DIR}")
-                    else:
-                        log_warn("app_paths section in config.ini missing critical options. Using default web paths.")
-                else:
-                    log_warn("app_paths section not found in config.ini. Using default web paths.")
-            except configparser.Error as e:
-                log_warn(f"Error reading config.ini for paths: {e}. Using default paths for operations.")
-        else:
-            log_warn("HFGCSpy config.ini not found. Using default paths for operations.")
+        _load_paths_from_config()
     
     # Process arguments
     if len(sys.argv) == 1:
@@ -573,8 +588,7 @@ def main():
         setup_systemd_service()
         log_info("HFGCSpy installation complete. Please consider rebooting your Raspberry Pi for full effect.")
     elif args.run:
-        # hfgcs.py script itself uses config.ini for its internal paths.
-        # No extra path setting needed here, just ensure the CWD is correct for it to find config.ini (handled by systemd or manual cd)
+        check_root() # Running main app requires root for SDR
         run_hfgcspy()
     elif args.stop:
         check_root()
