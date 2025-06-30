@@ -1,7 +1,7 @@
 # HFGCSpy/setup.py
 # Python-based installer for HFGCSpy application.
 # This script handles all installation, configuration, and service management.
-# Version: 1.2.26 # Version bump for checksum-based web UI updates and Apache syntax fix
+# Version: 1.2.27 # Version bump for no-pip/venv, improved idempotency, and Apache syntax fix
 
 import os
 import sys
@@ -13,7 +13,7 @@ import argparse
 import hashlib # Added for checksum calculation
 
 # --- Script Version ---
-__version__ = "1.2.26" # Updated version
+__version__ = "1.2.27" # Updated version
 
 # --- Configuration Constants (Defined at module top-level for absolute clarity and immediate availability) ---
 # Corrected: This should be the Git clone URL, not the raw content URL
@@ -29,7 +29,6 @@ WEB_ROOT_DIR_DEFAULT = "/var/www/html/hfgcspy" # This is where the web UI files 
 # They are declared here, and their concrete values (derived from defaults or user input)
 # will be assigned ONLY within the set_global_installation_paths function.
 hfgcs_app_dir = None 
-hfgcs_venv_dir = None
 hfgcs_config_file = None
 hfgcs_db_path = None  
 hfgcs_log_path = None 
@@ -65,11 +64,8 @@ def ask_yes_no(question):
 def run_command(command, check_return=True, capture_output=False, shell=False):
     log_info(f"Executing: {' '.join(command) if isinstance(command, list) else command}")
     try:
-        # Special handling for python/pip commands to avoid shell=True issues
-        if isinstance(command, list) and (command[0] == sys.executable or command[0].endswith("/python3") or command[0].endswith("/pip")): 
-             result = subprocess.run(command, check=check_return, capture_output=capture_output, text=True)
-        else:
-            result = subprocess.run(command, check=check_return, capture_output=capture_output, text=True, shell=shell)
+        # No special handling for python/pip commands as they are removed
+        result = subprocess.run(command, check=check_return, capture_output=capture_output, text=True, shell=shell)
         if capture_output:
             return result.stdout.strip()
         return result
@@ -111,11 +107,10 @@ def set_global_installation_paths(app_dir_val, web_root_dir_val):
     app and web root directories.
     This function should be called explicitly in main() after base paths are determined.
     """
-    global hfgcs_app_dir, hfgcs_venv_dir, hfgcs_config_file, hfgcs_db_path, hfgcs_log_path
+    global hfgcs_app_dir, hfgcs_config_file, hfgcs_db_path, hfgcs_log_path
     global web_root_dir, hfgcs_data_dir, hfgcs_recordings_path, hfgcs_config_json_path
 
     hfgcs_app_dir = app_dir_val
-    hfgcs_venv_dir = os.path.join(hfgcs_app_dir, "venv")
     hfgcs_config_file = os.path.join(hfgcs_app_dir, "config.ini")
     hfgcs_db_path = os.path.join(hfgcs_app_dir, "data", "hfgcspy.db") # Derived DB path
     hfgcs_log_path = os.path.join(hfgcs_app_dir, "logs", "hfgcspy.log") # Derived Log path
@@ -203,11 +198,15 @@ def install_system_and_python_deps(force_install=False):
     if system_deps_needed:
         log_info("Performing initial system dependency installation (this may take a while)...")
         run_command("apt update", shell=True)
+        # Install core system dependencies and Python packages via apt-get
         run_command([
             "apt", "install", "-y", 
-            "git", "python3", "python3-pip", "python3-venv", "build-essential", 
+            "git", "python3", "python3-pip", "python3-venv", "build-essential", # python3-pip and python3-venv are still here for general system readiness, but not used by this script for HFGCSpy's specific dependencies.
             "libusb-1.0-0-dev", "libatlas-base-dev", "libopenblas-dev", "net-tools", "apache2",
-            "apt-transport-https", "ca-certificates", "curl", "gnupg", "lsb-release"
+            "apt-transport-https", "ca-certificates", "curl", "gnupg", "lsb-release",
+            # Python dependencies from requirements.txt, now via apt-get
+            "python3-numpy", "python3-scipy", "python3-flask", "python3-gunicorn", 
+            "python3-dotenv", "python3-requests", "python3-pyrtlsdr" # pyrtlsdr might be python3-rtlsdr or similar, check your distro
         ])
         log_info("Installing rtl-sdr tools...")
         run_command(["apt", "install", "-y", "rtl-sdr"])
@@ -246,12 +245,8 @@ def install_system_and_python_deps(force_install=False):
         os.chdir(current_dir)
         app_cloned = False # Not a fresh clone
 
-    log_info(f"Setting up Python virtual environment in {hfgcs_venv_dir} and installing dependencies...")
-    run_command([sys.executable, "-m", "venv", hfgcs_venv_dir]) 
-    pip_path = os.path.join(hfgcs_venv_dir, "bin", "pip")
-    requirements_path = os.path.join(hfgcs_app_dir, "requirements.txt")
-    run_command([pip_path, "install", "--upgrade", "pip"])
-    run_command([pip_path, "install", "-r", requirements_path])
+    # No pip or venv installation for HFGCSpy's Python dependencies
+    log_info("Skipping Python virtual environment setup and pip installations as per requirements.")
     
     return app_cloned # Return whether the app was freshly cloned or just updated.
 
@@ -570,7 +565,7 @@ After=network.target
 
 [Service]
 WorkingDirectory={hfgcs_app_dir}
-ExecStart={os.path.join(hfgcs_venv_dir, "bin", "python3")} {os.path.join(hfgcs_app_dir, "hfgcs.py")} --run
+ExecStart=/usr/bin/python3 {os.path.join(hfgcs_app_dir, "hfgcs.py")} --run
 StandardOutput=inherit
 StandardError=inherit
 Restart=always
@@ -609,10 +604,8 @@ def update_hfgcspy_app_code():
     
 
     log_info("Reinstalling Python dependencies (if any new ones exist)...")
-    pip_path = os.path.join(hfgcs_venv_dir, "bin", "pip")
-    requirements_path = os.path.join(hfgcs_app_dir, "requirements.txt")
-    run_command([pip_path, "install", "--upgrade", "pip"])
-    run_command([pip_path, "install", "-r", requirements_path])
+    # No pip installation for HFGCSpy's Python dependencies, rely on apt-get
+    log_info("Skipping pip installations as per requirements. Relying on apt-get for Python dependencies.")
 
     log_info(f"Updating web UI files in Apache web root: {web_root_dir} based on checksums...")
     src_web_ui_dir = os.path.join(hfgcs_app_dir, "web_ui")
@@ -704,10 +697,11 @@ def uninstall_hfgcspy():
 def run_hfgcspy():
     """Runs the main hfgcs.py application (for debugging/manual start)."""
     log_info("Attempting to run HFGCSpy application directly...")
-    python_exec = os.path.join(hfgcs_venv_dir, "bin", "python3")
+    # Use /usr/bin/python3 directly
+    python_exec = "/usr/bin/python3" 
     hfgcs_script = os.path.join(hfgcs_app_dir, "hfgcs.py")
     if not os.path.exists(python_exec):
-        log_error(f"Python virtual environment executable not found at {python_exec}. Is HFGCSpy installed?")
+        log_error(f"Python executable not found at {python_exec}. Please ensure python3 is installed.")
     if not os.path.exists(hfgcs_script):
         log_error(f"HFGCSpy main script not found at {hfgcs_script}. Is HFGCSpy installed?")
     
@@ -735,7 +729,7 @@ def main():
     # For --install, prompt_for_paths() will update them.
     # For other commands, load_paths_from_config() will attempt to update them.
     # This structure ensures they always have *some* value before being used.
-    global hfgcs_app_dir, hfgcs_venv_dir, hfgcs_config_file, hfgcs_db_path, hfgcs_log_path
+    global hfgcs_app_dir, hfgcs_config_file, hfgcs_db_path, hfgcs_log_path
     global web_root_dir, hfgcs_data_dir, hfgcs_recordings_path, hfgcs_config_json_path
 
     log_info(f"HFGCSpy Installer (Version: {__version__})")
