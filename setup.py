@@ -1,7 +1,7 @@
 # HFGCSpy/setup.py
 # Python-based installer for HFGCSpy application.
 # This script handles all installation, configuration, and service management.
-# Version: 1.2.15 # Version bump for this critical fix attempt
+# Version: 1.2.16 # Version bump for this critical fix attempt
 
 import os
 import sys
@@ -12,7 +12,7 @@ import re
 import argparse
 
 # --- Script Version ---
-__version__ = "1.2.15" # Updated version
+__version__ = "1.2.16" # Updated version
 
 # --- Configuration Constants (Defined at module top-level for absolute clarity and immediate availability) ---
 HFGCSPY_REPO = "https://github.com/sworrl/HFGCSpy.git" # IMPORTANT: Ensure this is correct!
@@ -91,7 +91,7 @@ def set_global_installation_paths(app_dir_val, web_root_dir_val):
     This function should be called explicitly in main() after base paths are determined.
     """
     global HFGCSpy_APP_DIR, HFGCSpy_VENV_DIR, HFGCSpy_CONFIG_FILE, HFGCSpy_DB_PATH, HFGCSpy_LOG_PATH
-    global WEB_ROOT_DIR, HFGCSpy_DATA_DIR, HFGCSpy_RECORDINGS_PATH, HFGCSpy_CONFIG_JSON_PATH
+    global WEB_ROOT_DIR, HFGCSpy_DATA_DIR, HFGCSPY_RECORDINGS_PATH, HFGCSPY_CONFIG_JSON_PATH
 
     HFGCSpy_APP_DIR = app_dir_val
     HFGCSpy_VENV_DIR = os.path.join(HFGCSpy_APP_DIR, "venv")
@@ -255,8 +255,9 @@ def configure_hfgcspy_app():
     # Store absolute paths for web-accessible files in config.ini
     config_obj.set('app_paths', 'status_file', os.path.join(HFGCSpy_DATA_DIR, "status.json"))
     config_obj.set('app_paths', 'messages_file', os.path.join(HFGCSpy_DATA_DIR, "messages.json"))
-    config_obj.set('app_paths', 'recordings_dir', HFGCSpy_RECORDINGS_PATH) # Recordings dir is directly served
-    config_obj.set('app_paths', 'config_json_file', HFGCSpy_CONFIG_JSON_PATH) # Use the global derived path
+    # FIX: Corrected variable name from HFGCSpy_RECORDINGS_PATH to HFGCSPY_RECORDINGS_PATH
+    config_obj.set('app_paths', 'recordings_dir', HFGCSPY_RECORDINGS_PATH) # Recordings dir is directly served
+    config_obj.set('app_paths', 'config_json_file', HFGCSPY_CONFIG_JSON_PATH) # Use the global derived path
 
     with open(HFGCSpy_CONFIG_FILE, 'w') as f:
         config_obj.write(f)
@@ -269,9 +270,9 @@ def configure_hfgcspy_app():
     run_command(["chmod", "-R", "u+rwX,go-w", HFGCSpy_APP_DIR]) # Restrict write from others
 
     # Create web-accessible data directories and set permissions for Apache
-    log_info(f"Creating web-accessible data directories: {HFGCSpy_DATA_DIR} and {HFGCSpy_RECORDINGS_PATH}.")
+    log_info(f"Creating web-accessible data directories: {HFGCSpy_DATA_DIR} and {HFGCSPY_RECORDINGS_PATH}.")
     os.makedirs(HFGCSpy_DATA_DIR, exist_ok=True)
-    os.makedirs(HFGCSpy_RECORDINGS_PATH, exist_ok=True)
+    os.makedirs(HFGCSPY_RECORDINGS_PATH, exist_ok=True)
     run_command(["chown", "-R", "www-data:www-data", HFGCSpy_DATA_DIR])
     run_command(["chmod", "-R", "775", HFGCSpy_DATA_DIR]) # Allow www-data write, others read/execute
 
@@ -398,7 +399,7 @@ def configure_apache2_webui():
     </Directory>
 
     Alias /hfgcspy_data "{HFGCSpy_DATA_DIR}"
-    <Directory "{HFGCSpy_DATA_DIR}">
+    <Directory "{HFGCSpy_DATA_DATA}">
         Options Indexes FollowSymLinks
         AllowOverride None
         Require all granted
@@ -610,7 +611,7 @@ def main():
     # For other commands, load_paths_from_config() will attempt to update them.
     # This structure ensures they always have *some* value before being used.
     global HFGCSpy_APP_DIR, HFGCSpy_VENV_DIR, HFGCSpy_CONFIG_FILE, HFGCSpy_DB_PATH, HFGCSpy_LOG_PATH
-    global WEB_ROOT_DIR, HFGCSpy_DATA_DIR, HFGCSpy_RECORDINGS_PATH, HFGCSpy_CONFIG_JSON_PATH
+    global WEB_ROOT_DIR, HFGCSpy_DATA_DIR, HFGCSPY_RECORDINGS_PATH, HFGCSPY_CONFIG_JSON_PATH
 
     log_info(f"HFGCSpy Installer (Version: {__version__})")
 
