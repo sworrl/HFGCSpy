@@ -1,7 +1,7 @@
 # HFGCSpy/setup.py
 # Python-based installer for HFGCSpy application.
 # This script handles all installation, configuration, and service management.
-# Version: 1.2.32 # Version bump for separate HTTP/HTTPS configs and robust Apache management
+# Version: 1.2.33 # Version bump for SSH stability and post-install instructions
 
 import os
 import sys
@@ -11,9 +11,10 @@ import shutil
 import re
 import argparse
 import hashlib # Added for checksum calculation
+import time # Added for sleep function
 
 # --- Script Version ---
-__version__ = "1.2.32" # Updated version
+__version__ = "1.2.33" # Updated version
 
 # --- Configuration Constants (Defined at module top-level for absolute clarity and immediate availability) ---
 # Corrected: This should be the Git clone URL, not the raw content URL
