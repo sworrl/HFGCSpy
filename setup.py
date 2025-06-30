@@ -1,7 +1,7 @@
 # HFGCSpy/setup.py
 # Python-based installer for HFGCSpy application.
 # This script handles all installation, configuration, and service management.
-# Version: 1.2.19 # Version bump for refactoring and critical fix
+# Version: 1.2.20 # Version bump for Apache config and directory creation debugging
 
 import os
 import sys
@@ -12,7 +12,7 @@ import re
 import argparse
 
 # --- Script Version ---
-__version__ = "1.2.19" # Updated version
+__version__ = "1.2.20" # Updated version
 
 # --- Configuration Constants (Defined at module top-level for absolute clarity and immediate availability) ---
 HFGCSPY_REPO = "https://github.com/sworrl/HFGCSpy.git" # IMPORTANT: Ensure this is correct!
@@ -20,7 +20,7 @@ HFGCSPY_SERVICE_NAME = "hfgcspy.service" # Service name is constant
 
 # Default base installation directories (THESE ARE THE TRUE CONSTANTS, always available)
 APP_DIR_DEFAULT = "/opt/hfgcspy"
-WEB_ROOT_DIR_DEFAULT = "/var/www/html/hfgcspy"
+WEB_ROOT_DIR_DEFAULT = "/var/www/html/hfgcspy" # This is where the web UI files will be copied
 
 # --- Global Path Variables (Initialized to None, will be set by set_global_installation_paths) ---
 # These are the variables that will hold the *actual* paths during script execution.
@@ -32,8 +32,8 @@ hfgcs_config_file = None
 hfgcs_db_path = None  
 hfgcs_log_path = None 
 
-web_root_dir = None
-hfgcs_data_dir = None
+web_root_dir = None # The directory where HFGCSpy's web UI files are served from
+hfgcs_data_dir = None # The directory for status.json, messages.json, recordings
 hfgcs_recordings_path = None
 hfgcs_config_json_path = None
 
@@ -100,7 +100,7 @@ def set_global_installation_paths(app_dir_val, web_root_dir_val):
     hfgcs_log_path = os.path.join(hfgcs_app_dir, "logs", "hfgcspy.log") # Derived Log path
     
     web_root_dir = web_root_dir_val
-    # hfgcs_data_dir is always created as a sub-directory of the web root
+    # hfgcs_data_dir is always created as a sub-directory of the web root where actual data files reside
     hfgcs_data_dir = os.path.join(web_root_dir, "hfgcspy_data") 
     hfgcs_recordings_path = os.path.join(hfgcs_data_dir, "recordings")
     hfgcs_config_json_path = os.path.join(hfgcs_data_dir, "config.json")
@@ -128,9 +128,9 @@ def load_paths_from_config():
                 if match:
                     web_root_dir_from_config = match.group(1)
                 else:
-                    log_warn(f"Could not reliably deduce WEB_ROOT_DIR from status_file path in config.ini: {full_status_path}. Using default.")
+                    log_warn(f"Could not reliably deduce web_root_dir from status_file path in config.ini: {full_status_path}. Using default.")
             else:
-                log_warn("app_paths section or status_file option missing in config.ini. Using default WEB_ROOT_DIR.")
+                log_warn("app_paths section or status_file option missing in config.ini. Using default web_root_dir.")
 
             # If app_dir_from_config is empty (e.g., config.ini is minimal or old), use default base
             if not app_dir_from_config: app_dir_from_config = APP_DIR_DEFAULT
@@ -205,9 +205,12 @@ def install_system_and_python_deps():
 
 def configure_hfgcspy_app():
     log_info("Configuring HFGCSpy application settings...")
-    # These directories are derived from hfgcs_app_dir
+    
+    # Ensure parent directories for DB and logs exist
     os.makedirs(os.path.dirname(hfgcs_db_path), exist_ok=True)
+    log_info(f"Ensured DB directory exists: {os.path.dirname(hfgcs_db_path)}")
     os.makedirs(os.path.dirname(hfgcs_log_path), exist_ok=True)
+    log_info(f"Ensured log directory exists: {os.path.dirname(hfgcs_log_path)}")
     
     if not os.path.exists(hfgcs_config_file):
         template_path = os.path.join(hfgcs_app_dir, "config.ini.template")
@@ -268,9 +271,11 @@ def configure_hfgcspy_app():
     run_command(["chmod", "-R", "u+rwX,go-w", hfgcs_app_dir]) # Restrict write from others
 
     # Create web-accessible data directories and set permissions for Apache
-    log_info(f"Creating web-accessible data directories: {hfgcs_data_dir} and {hfgcs_recordings_path}.")
+    log_info(f"Attempting to create web-accessible data directories: {hfgcs_data_dir} and {hfgcs_recordings_path}.")
     os.makedirs(hfgcs_data_dir, exist_ok=True)
+    log_info(f"Ensured web data directory exists: {hfgcs_data_dir}")
     os.makedirs(hfgcs_recordings_path, exist_ok=True)
+    log_info(f"Ensured recordings directory exists: {hfgcs_recordings_path}")
     run_command(["chown", "-R", "www-data:www-data", hfgcs_data_dir])
     run_command(["chmod", "-R", "775", hfgcs_data_dir]) # Allow www-data write, others read/execute
 
@@ -365,14 +370,17 @@ def configure_apache2_webui():
     apache_conf_content = f"""
 <VirtualHost *:80>
     ServerName {server_name}
-    DocumentRoot {web_root_dir}
+    DocumentRoot /var/www/html # Standard Apache default root for Debian/Raspberry Pi OS
 
-    <Directory {web_root_dir}>
+    # Alias for the HFGCSpy web UI files
+    Alias /hfgcspy "{web_root_dir}"
+    <Directory "{web_root_dir}">
         Options Indexes FollowSymLinks
         AllowOverride None
         Require all granted
     </Directory>
 
+    # Alias for the HFGCSpy data directory (status.json, messages.json, recordings)
     Alias /hfgcspy_data "{hfgcs_data_dir}"
     <Directory "{hfgcs_data_dir}">
         Options Indexes FollowSymLinks
@@ -388,14 +396,17 @@ def configure_apache2_webui():
         apache_conf_content += f"""
 <VirtualHost *:443>
     ServerName {server_name}
-    DocumentRoot {web_root_dir}
+    DocumentRoot /var/www/html # Standard Apache default root for Debian/Raspberry Pi OS
 
-    <Directory {web_root_dir}>
+    # Alias for the HFGCSpy web UI files
+    Alias /hfgcspy "{web_root_dir}"
+    <Directory "{web_root_dir}">
         Options Indexes FollowSymLinks
         AllowOverride None
         Require all granted
     </Directory>
 
+    # Alias for the HFGCSpy data directory (status.json, messages.json, recordings)
     Alias /hfgcspy_data "{hfgcs_data_dir}"
     <Directory "{hfgcs_data_dir}">
         Options Indexes FollowSymLinks
@@ -427,8 +438,8 @@ def configure_apache2_webui():
     with open(apache_conf_path, "w") as f:
         f.write(apache_conf_content)
 
-    run_command(["a2dissite", "000-default.conf"], check_return=False)
-    run_command(["a2ensite", os.path.basename(apache_conf_path)])
+    run_command(["a2dissite", "000-default.conf"], check_return=False) # Disable default Apache page
+    run_command(["a2ensite", os.path.basename(apache_conf_path)]) # Enable HFGCSpy site
     
     run_command(["systemctl", "restart", "apache2"])
     log_info("Apache2 configured and restarted to serve HFGCSpy web UI.")
