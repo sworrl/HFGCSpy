@@ -1,7 +1,7 @@
 # HFGCSpy/setup.py
 # Python-based installer for HFGCSpy application.
 # This script handles all installation, configuration, and service management.
-# Version: 1.2.25 # Version bump for Apache DocumentRoot syntax fix
+# Version: 1.2.26 # Version bump for checksum-based web UI updates and Apache syntax fix
 
 import os
 import sys
@@ -10,9 +10,10 @@ import configparser
 import shutil
 import re
 import argparse
+import hashlib # Added for checksum calculation
 
 # --- Script Version ---
-__version__ = "1.2.25" # Updated version
+__version__ = "1.2.26" # Updated version
 
 # --- Configuration Constants (Defined at module top-level for absolute clarity and immediate availability) ---
 # Corrected: This should be the Git clone URL, not the raw content URL
@@ -82,6 +83,25 @@ def run_command(command, check_return=True, capture_output=False, shell=False):
 def check_root():
     if os.geteuid() != 0:
         log_error("This script must be run with sudo. Please run: sudo python3 setup.py --install")
+
+def calculate_file_checksum(filepath, algorithm='sha256', block_size=65536):
+    """Calculates the checksum of a file using the specified algorithm."""
+    if not os.path.exists(filepath):
+        return None
+    
+    if algorithm == 'sha256':
+        hasher = hashlib.sha256()
+    elif algorithm == 'md5': # Example for another algorithm
+        hasher = hashlib.md5()
+    else:
+        log_error(f"Unsupported checksum algorithm: {algorithm}")
+
+    with open(filepath, 'rb') as f:
+        buf = f.read(block_size)
+        while len(buf) > 0:
+            hasher.update(buf)
+            buf = f.read(block_size)
+    return hasher.hexdigest()
 
 # --- Path Management Functions ---
 
@@ -170,9 +190,8 @@ def install_system_and_python_deps(force_install=False):
     # This marker is now placed in a more reliable location within the app directory
     install_marker_file = os.path.join(APP_DIR_DEFAULT, ".hfgcspy_system_installed")
 
+    system_deps_needed = not os.path.exists(install_marker_file) or force_install
     if os.path.exists(install_marker_file) and not force_install:
-        log_info("System dependencies and RTL-SDR tools appear to be already installed. Skipping.")
-        # Check if the marker file version matches current script version, for future-proofing updates
         try:
             with open(install_marker_file, 'r') as f:
                 installed_version = f.read().strip()
@@ -180,67 +199,61 @@ def install_system_and_python_deps(force_install=False):
                 log_warn(f"System dependencies marker file version ({installed_version}) does not match script version ({__version__}). Consider re-running with --force-system-install if issues arise.")
         except Exception as e:
             log_warn(f"Could not read system install marker file: {e}. Proceeding assuming installed.")
-        
-        # Ensure the repository is cloned even if system deps are skipped (e.g., first run failed git clone)
-        if not os.path.exists(hfgcs_app_dir) or not os.path.isdir(os.path.join(hfgcs_app_dir, '.git')):
-            log_info(f"HFGCSpy application directory {hfgcs_app_dir} not found or not a git repo. Cloning now.")
-            run_command(["git", "clone", HFGCSPY_REPO, hfgcs_app_dir])
-        return False # Indicate no fresh system install (but repo might have been cloned)
 
-    log_info("Performing initial system dependency installation (this may take a while)...")
-    run_command("apt update", shell=True)
-    run_command([
-        "apt", "install", "-y", 
-        "git", "python3", "python3-pip", "python3-venv", "build-essential", 
-        "libusb-1.0-0-dev", "libatlas-base-dev", "libopenblas-dev", "net-tools", "apache2",
-        "apt-transport-https", "ca-certificates", "curl", "gnupg", "lsb-release"
-    ])
-
-    log_info("Installing rtl-sdr tools...")
-    run_command(["apt", "install", "-y", "rtl-sdr"])
-    
-    log_info("Blacklisting conflicting DVB-T kernel modules...")
-    blacklist_conf = "/etc/modprobe.d/blacklist-rtl.conf"
-    with open(blacklist_conf, "w") as f:
-        f.write("blacklist dvb_usb_rtl28xxu\n")
-        f.write("blacklist rtl2832\n")
-        f.write("blacklist rtl2830\n")
-    run_command("depmod -a", shell=True)
-    run_command("update-initramfs -u", shell=True)
-    log_info("Conflicting kernel modules blacklisted. A reboot might be required for this to take effect.")
-
-    # Create the marker file after successful system-level installation
-    os.makedirs(os.path.dirname(install_marker_file), exist_ok=True)
-    with open(install_marker_file, 'w') as f:
-        f.write(__version__)
-    log_info(f"System dependencies installation marked by {install_marker_file}.")
-
-    # Always attempt to clone if it's a fresh system install or force_install
-    log_info(f"Cloning HFGCSpy application from GitHub to {hfgcs_app_dir}...")
-    if os.path.exists(hfgcs_app_dir):
-        log_warn(f"HFGCSpy directory {hfgcs_app_dir} already exists. Attempting to update instead of fresh clone.")
-        # If it exists but isn't a git repo (e.g., previous failed clone), try to remove and re-clone.
-        if not os.path.isdir(os.path.join(hfgcs_app_dir, '.git')):
-            log_warn(f"Directory {hfgcs_app_dir} exists but is not a Git repository. Attempting to remove and re-clone.")
-            shutil.rmtree(hfgcs_app_dir)
-            run_command(["git", "clone", HFGCSPY_REPO, hfgcs_app_dir])
-        else:
-            # If it's a git repo, just pull
-            current_dir = os.getcwd()
-            os.chdir(hfgcs_app_dir)
-            run_command(["git", "pull"])
-            os.chdir(current_dir)
-        return False # Not a "fresh" clone in the sense of creating the dir
+    if system_deps_needed:
+        log_info("Performing initial system dependency installation (this may take a while)...")
+        run_command("apt update", shell=True)
+        run_command([
+            "apt", "install", "-y", 
+            "git", "python3", "python3-pip", "python3-venv", "build-essential", 
+            "libusb-1.0-0-dev", "libatlas-base-dev", "libopenblas-dev", "net-tools", "apache2",
+            "apt-transport-https", "ca-certificates", "curl", "gnupg", "lsb-release"
+        ])
+        log_info("Installing rtl-sdr tools...")
+        run_command(["apt", "install", "-y", "rtl-sdr"])
+        log_info("Blacklisting conflicting DVB-T kernel modules...")
+        blacklist_conf = "/etc/modprobe.d/blacklist-rtl.conf"
+        with open(blacklist_conf, "w") as f:
+            f.write("blacklist dvb_usb_rtl28xxu\n")
+            f.write("blacklist rtl2832\n")
+            f.write("blacklist rtl2830\n")
+        run_command("depmod -a", shell=True)
+        run_command("update-initramfs -u", shell=True)
+        log_info("Conflicting kernel modules blacklisted. A reboot might be required for this to take effect.")
+        os.makedirs(os.path.dirname(install_marker_file), exist_ok=True)
+        with open(install_marker_file, 'w') as f:
+            f.write(__version__)
+        log_info(f"System dependencies installation marked by {install_marker_file}.")
     else:
-        run_command(["git", "clone", HFGCSPY_REPO, hfgcs_app_dir]) 
-    
+        log_info("System dependencies and RTL-SDR tools appear to be already installed. Skipping system-level updates.")
+
+    # Handle cloning/pulling the application repository
+    app_cloned = False
+    if not os.path.exists(hfgcs_app_dir):
+        log_info(f"Cloning HFGCSpy application from GitHub to {hfgcs_app_dir}...")
+        run_command(["git", "clone", HFGCSPY_REPO, hfgcs_app_dir])
+        app_cloned = True
+    elif not os.path.isdir(os.path.join(hfgcs_app_dir, '.git')):
+        log_warn(f"Directory {hfgcs_app_dir} exists but is not a Git repository. Attempting to remove and re-clone.")
+        shutil.rmtree(hfgcs_app_dir)
+        run_command(["git", "clone", HFGCSPY_REPO, hfgcs_app_dir])
+        app_cloned = True
+    else:
+        log_info(f"HFGCSpy application directory {hfgcs_app_dir} already exists and is a Git repository. Pulling latest changes.")
+        current_dir = os.getcwd()
+        os.chdir(hfgcs_app_dir)
+        run_command(["git", "pull"])
+        os.chdir(current_dir)
+        app_cloned = False # Not a fresh clone
+
     log_info(f"Setting up Python virtual environment in {hfgcs_venv_dir} and installing dependencies...")
     run_command([sys.executable, "-m", "venv", hfgcs_venv_dir]) 
     pip_path = os.path.join(hfgcs_venv_dir, "bin", "pip")
     requirements_path = os.path.join(hfgcs_app_dir, "requirements.txt")
     run_command([pip_path, "install", "--upgrade", "pip"])
     run_command([pip_path, "install", "-r", requirements_path])
-    return True # Indicate fresh clone (new app dir created)
+    
+    return app_cloned # Return whether the app was freshly cloned or just updated.
 
 def configure_hfgcspy_app():
     log_info("Configuring HFGCSpy application settings...")
@@ -336,22 +349,28 @@ def configure_apache2_webui(is_update=False):
     run_command("a2enmod headers ssl proxy proxy_http", shell=True, check_return=False)
 
     log_info(f"Copying HFGCSpy web UI files to Apache web root: {web_root_dir}")
-    if os.path.exists(web_root_dir):
-        log_warn(f"Existing web UI directory {web_root_dir} found. Removing contents before copying new files.")
-        shutil.rmtree(web_root_dir) # Clean up previous install if any
-    os.makedirs(web_root_dir, exist_ok=True)
-    
-    # Copy contents of web_ui directory
+    # Instead of shutil.rmtree and shutil.copytree, we'll use checksums for selective copying
     src_web_ui_dir = os.path.join(hfgcs_app_dir, "web_ui")
-    for item in os.listdir(src_web_ui_dir):
-        s = os.path.join(src_web_ui_dir, item)
-        d = os.path.join(web_root_dir, item)
-        if os.path.isdir(s):
-            shutil.copytree(s, d, dirs_exist_ok=True)
-        else:
-            shutil.copy2(s, d)
 
-    # Ensure Apache has correct ownership/permissions
+    log_info(f"Updating web UI files in Apache web root: {web_root_dir} based on checksums...")
+    for root, _, files in os.walk(src_web_ui_dir):
+        for file in files:
+            src_file_path = os.path.join(root, file)
+            # Calculate relative path from src_web_ui_dir
+            relative_path = os.path.relpath(src_file_path, src_web_ui_dir)
+            dest_file_path = os.path.join(web_root_dir, relative_path)
+
+            src_checksum = calculate_file_checksum(src_file_path)
+            dest_checksum = calculate_file_checksum(dest_file_path)
+
+            if src_checksum != dest_checksum:
+                log_info(f"Copying changed file: {relative_path}")
+                os.makedirs(os.path.dirname(dest_file_path), exist_ok=True)
+                shutil.copy2(src_file_path, dest_file_path)
+            else:
+                log_info(f"File unchanged: {relative_path} (checksums match)")
+
+    # Ensure correct permissions after selective copy
     run_command(["chown", "-R", "www-data:www-data", web_root_dir])
     run_command(["chmod", "-R", "755", web_root_dir])
 
@@ -446,10 +465,11 @@ def configure_apache2_webui(is_update=False):
 
 
     # Generate Apache config content
+    # Removed inline comments from DocumentRoot lines to fix syntax error
     apache_conf_content = f"""
 <VirtualHost *:80>
     ServerName {server_name}
-    DocumentRoot /var/www/html 
+    DocumentRoot /var/www/html
 
     # Alias for the HFGCSpy web UI files
     Alias /hfgcspy "{web_root_dir}"
@@ -475,7 +495,7 @@ def configure_apache2_webui(is_update=False):
         apache_conf_content += f"""
 <VirtualHost *:443>
     ServerName {server_name}
-    DocumentRoot /var/www/html 
+    DocumentRoot /var/www/html
 
     # Alias for the HFGCSpy web UI files
     Alias /hfgcspy "{web_root_dir}"
@@ -594,20 +614,28 @@ def update_hfgcspy_app_code():
     run_command([pip_path, "install", "--upgrade", "pip"])
     run_command([pip_path, "install", "-r", requirements_path])
 
-    log_info(f"Re-copying web UI files to Apache web root: {web_root_dir}...")
-    if os.path.exists(web_root_dir):
-        shutil.rmtree(web_root_dir) # Clean up old files
-    os.makedirs(web_root_dir, exist_ok=True)
-    # Copy contents of web_ui directory
+    log_info(f"Updating web UI files in Apache web root: {web_root_dir} based on checksums...")
     src_web_ui_dir = os.path.join(hfgcs_app_dir, "web_ui")
-    for item in os.listdir(src_web_ui_dir):
-        s = os.path.join(src_web_ui_dir, item)
-        d = os.path.join(web_root_dir, item)
-        if os.path.isdir(s):
-            shutil.copytree(s, d, dirs_exist_ok=True)
-        else:
-            shutil.copy2(s, d)
 
+    # Iterate through source files and compare with destination
+    for root, _, files in os.walk(src_web_ui_dir):
+        for file in files:
+            src_file_path = os.path.join(root, file)
+            # Calculate relative path from src_web_ui_dir
+            relative_path = os.path.relpath(src_file_path, src_web_ui_dir)
+            dest_file_path = os.path.join(web_root_dir, relative_path)
+
+            src_checksum = calculate_file_checksum(src_file_path)
+            dest_checksum = calculate_file_checksum(dest_file_path)
+
+            if src_checksum != dest_checksum:
+                log_info(f"Copying changed file: {relative_path}")
+                os.makedirs(os.path.dirname(dest_file_path), exist_ok=True)
+                shutil.copy2(src_file_path, dest_file_path)
+            else:
+                log_info(f"File unchanged: {relative_path} (checksums match)")
+
+    # Ensure correct permissions after selective copy
     run_command(["chown", "-R", "www-data:www-data", web_root_dir])
     run_command(["chmod", "-R", "755", web_root_dir])
     
