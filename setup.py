@@ -193,7 +193,8 @@ def install_system_and_python_deps():
         log_warn(f"HFGCSpy directory {HFGCSpy_APP_DIR} already exists. Skipping clone. Use --uninstall first if you want a fresh install.")
         return False # Indicate that it was an no fresh clone
     else:
-        run_command(["git", "clone", HFGCSpy_REPO, HFGCSpy_APP_DIR]) # HFGCSpy_REPO is global constant
+        # FIX: Changed HFGCSpy_REPO to HFGCSPY_REPO to match the global constant
+        run_command(["git", "clone", HFGCSPY_REPO, HFGCSpy_APP_DIR]) 
     
     log_info(f"Setting up Python virtual environment in {HFGCSpy_VENV_DIR} and installing dependencies...")
     run_command([sys.executable, "-m", "venv", HFGCSpy_VENV_DIR]) 
