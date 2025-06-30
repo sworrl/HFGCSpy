@@ -1,7 +1,7 @@
 # HFGCSpy/setup.py
 # Python-based installer for HFGCSpy application.
 # This script handles all installation, configuration, and service management.
-# Version: 1.2.24 # Version bump for smarter install/update logic
+# Version: 1.2.25 # Version bump for Apache DocumentRoot syntax fix
 
 import os
 import sys
@@ -12,7 +12,7 @@ import re
 import argparse
 
 # --- Script Version ---
-__version__ = "1.2.24" # Updated version
+__version__ = "1.2.25" # Updated version
 
 # --- Configuration Constants (Defined at module top-level for absolute clarity and immediate availability) ---
 # Corrected: This should be the Git clone URL, not the raw content URL
@@ -102,7 +102,7 @@ def set_global_installation_paths(app_dir_val, web_root_dir_val):
     
     web_root_dir = web_root_dir_val
     # hfgcs_data_dir is always created as a sub-directory of the web root where actual data files reside
-    hfgcs_data_dir = os.path.join(web_root_dir, "hfgcspy_data") 
+    hfgcs_data_dir = os.path.join(web_root_dir, "hfgcs_data") 
     hfgcs_recordings_path = os.path.join(hfgcs_data_dir, "recordings")
     hfgcs_config_json_path = os.path.join(hfgcs_data_dir, "config.json")
 
@@ -449,7 +449,7 @@ def configure_apache2_webui(is_update=False):
     apache_conf_content = f"""
 <VirtualHost *:80>
     ServerName {server_name}
-    DocumentRoot /var/www/html # Standard Apache default root for Debian/Raspberry Pi OS
+    DocumentRoot /var/www/html 
 
     # Alias for the HFGCSpy web UI files
     Alias /hfgcspy "{web_root_dir}"
@@ -475,7 +475,7 @@ def configure_apache2_webui(is_update=False):
         apache_conf_content += f"""
 <VirtualHost *:443>
     ServerName {server_name}
-    DocumentRoot /var/www/html # Standard Apache default root for Debian/Raspberry Pi OS
+    DocumentRoot /var/www/html 
 
     # Alias for the HFGCSpy web UI files
     Alias /hfgcspy "{web_root_dir}"
