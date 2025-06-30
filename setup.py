@@ -1,7 +1,7 @@
 # HFGCSpy/setup.py
 # Python-based installer for HFGCSpy application.
 # This script handles all installation, configuration, and service management.
-# Version: 1.2.23 # Version bump for first-run logic and robustness
+# Version: 1.2.24 # Version bump for smarter install/update logic
 
 import os
 import sys
@@ -12,7 +12,7 @@ import re
 import argparse
 
 # --- Script Version ---
-__version__ = "1.2.23" # Updated version
+__version__ = "1.2.24" # Updated version
 
 # --- Configuration Constants (Defined at module top-level for absolute clarity and immediate availability) ---
 # Corrected: This should be the Git clone URL, not the raw content URL
@@ -107,11 +107,11 @@ def set_global_installation_paths(app_dir_val, web_root_dir_val):
     hfgcs_config_json_path = os.path.join(hfgcs_data_dir, "config.json")
 
 def load_paths_from_config():
-    """Attempts to load installed paths from config.ini into global variables."""
-    # This function will call set_global_installation_paths once it has determined the base directories.
+    """Attempts to load installed paths from config.ini into global variables.
+    Returns True if paths were successfully loaded, False otherwise."""
     
     config_read = configparser.ConfigParser()
-    installed_config_path = os.path.join(APP_DIR_DEFAULT, "config.ini") # Use constant APP_DIR_DEFAULT 
+    installed_config_path = os.path.join(APP_DIR_DEFAULT, "config.ini") 
 
     if os.path.exists(installed_config_path):
         try:
@@ -167,7 +167,8 @@ def prompt_for_paths():
 
 def install_system_and_python_deps(force_install=False):
     # Define a marker file to indicate if system-level dependencies have been installed
-    install_marker_file = os.path.join(hfgcs_app_dir, ".hfgcspy_system_installed")
+    # This marker is now placed in a more reliable location within the app directory
+    install_marker_file = os.path.join(APP_DIR_DEFAULT, ".hfgcspy_system_installed")
 
     if os.path.exists(install_marker_file) and not force_install:
         log_info("System dependencies and RTL-SDR tools appear to be already installed. Skipping.")
@@ -179,12 +180,12 @@ def install_system_and_python_deps(force_install=False):
                 log_warn(f"System dependencies marker file version ({installed_version}) does not match script version ({__version__}). Consider re-running with --force-system-install if issues arise.")
         except Exception as e:
             log_warn(f"Could not read system install marker file: {e}. Proceeding assuming installed.")
-        # Check if the repository exists, if not, clone it. This handles cases where system deps are installed
-        # but the repo wasn't cloned (e.g., failed previous run).
+        
+        # Ensure the repository is cloned even if system deps are skipped (e.g., first run failed git clone)
         if not os.path.exists(hfgcs_app_dir) or not os.path.isdir(os.path.join(hfgcs_app_dir, '.git')):
             log_info(f"HFGCSpy application directory {hfgcs_app_dir} not found or not a git repo. Cloning now.")
             run_command(["git", "clone", HFGCSPY_REPO, hfgcs_app_dir])
-        return False # Indicate no fresh system install
+        return False # Indicate no fresh system install (but repo might have been cloned)
 
     log_info("Performing initial system dependency installation (this may take a while)...")
     run_command("apt update", shell=True)
@@ -214,15 +215,22 @@ def install_system_and_python_deps(force_install=False):
         f.write(__version__)
     log_info(f"System dependencies installation marked by {install_marker_file}.")
 
+    # Always attempt to clone if it's a fresh system install or force_install
     log_info(f"Cloning HFGCSpy application from GitHub to {hfgcs_app_dir}...")
     if os.path.exists(hfgcs_app_dir):
-        log_warn(f"HFGCSpy directory {hfgcs_app_dir} already exists. Skipping clone. Use --uninstall first if you want a fresh install.")
-        # If it exists but wasn't a git repo (e.g., previous failed clone), try to re-clone or pull
+        log_warn(f"HFGCSpy directory {hfgcs_app_dir} already exists. Attempting to update instead of fresh clone.")
+        # If it exists but isn't a git repo (e.g., previous failed clone), try to remove and re-clone.
         if not os.path.isdir(os.path.join(hfgcs_app_dir, '.git')):
             log_warn(f"Directory {hfgcs_app_dir} exists but is not a Git repository. Attempting to remove and re-clone.")
             shutil.rmtree(hfgcs_app_dir)
             run_command(["git", "clone", HFGCSPY_REPO, hfgcs_app_dir])
-        return False # Indicate that it was not a fresh clone
+        else:
+            # If it's a git repo, just pull
+            current_dir = os.getcwd()
+            os.chdir(hfgcs_app_dir)
+            run_command(["git", "pull"])
+            os.chdir(current_dir)
+        return False # Not a "fresh" clone in the sense of creating the dir
     else:
         run_command(["git", "clone", HFGCSPY_REPO, hfgcs_app_dir]) 
     
@@ -232,7 +240,7 @@ def install_system_and_python_deps(force_install=False):
     requirements_path = os.path.join(hfgcs_app_dir, "requirements.txt")
     run_command([pip_path, "install", "--upgrade", "pip"])
     run_command([pip_path, "install", "-r", requirements_path])
-    return True # Indicate fresh clone
+    return True # Indicate fresh clone (new app dir created)
 
 def configure_hfgcspy_app():
     log_info("Configuring HFGCSpy application settings...")
@@ -719,11 +727,10 @@ def main():
     # Always set paths with defaults first to ensure they are never None
     set_global_installation_paths(APP_DIR_DEFAULT, WEB_ROOT_DIR_DEFAULT) 
 
-    # If not performing a fresh install, attempt to load paths from existing config.ini
-    # This will override the defaults set above if a config is found.
-    if not args.install:
-        load_paths_from_config() # This function will call set_global_installation_paths with loaded paths
-
+    # Determine if HFGCSpy is already installed in the default location
+    is_already_installed = os.path.exists(APP_DIR_DEFAULT) and \
+                           os.path.isdir(os.path.join(APP_DIR_DEFAULT, '.git')) and \
+                           os.path.exists(os.path.join(APP_DIR_DEFAULT, 'config.ini'))
 
     # Process arguments
     if len(sys.argv) == 1:
@@ -732,12 +739,23 @@ def main():
 
     if args.install:
         check_root()
-        prompt_for_paths() # Prompt to get user-defined paths if installing (updates globals)
-        install_system_and_python_deps(force_install=args.force_system_install)
-        configure_hfgcspy_app()
-        configure_apache2_webui(is_update=False) # Fresh install, no update logic for prompts
-        setup_systemd_service()
-        log_info("HFGCSpy installation complete. Please consider rebooting your Raspberry Pi for full effect.")
+        if is_already_installed:
+            log_info(f"HFGCSpy appears to be already installed at {APP_DIR_DEFAULT}. Proceeding with update logic.")
+            load_paths_from_config() # Load existing paths for update
+            install_system_and_python_deps(force_install=args.force_system_install) # Check/install system deps
+            update_hfgcspy_app_code() # Pull latest code, reinstall python deps, recopy web UI
+            configure_hfgcspy_app() # Reconfigure app's config.ini
+            configure_apache2_webui(is_update=True) # Use update logic for Apache prompts
+            setup_systemd_service() # Re-setup service in case of changes
+            log_info("HFGCSpy installation/update complete. Please consider rebooting your Raspberry Pi for full effect.")
+        else:
+            log_info("Performing a fresh HFGCSpy installation.")
+            prompt_for_paths() # Only prompt if it's truly a fresh install
+            install_system_and_python_deps(force_install=args.force_system_install)
+            configure_hfgcspy_app()
+            configure_apache2_webui(is_update=False) # Fresh install, no update logic for prompts
+            setup_systemd_service()
+            log_info("HFGCSpy installation complete. Please consider rebooting your Raspberry Pi for full effect.")
     elif args.run:
         check_root() # Running main app requires root for SDR
         run_hfgcspy()
@@ -754,6 +772,7 @@ def main():
         # For update, load paths from config first
         load_paths_from_config()
         # Then proceed with update steps
+        install_system_and_python_deps(force_install=args.force_system_install) # Check/install system deps
         update_hfgcspy_app_code()
         configure_apache2_webui(is_update=True) # Use update logic for prompts
         setup_systemd_service() # Re-setup service in case of changes
