@@ -1,7 +1,7 @@
 # HFGCSpy/setup.py
 # Python-based installer for HFGCSpy application.
 # This script handles all installation, configuration, and service management.
-# Version: 1.2.35 # Version bump for fixing f-string in commented Apache config
+# Version: 1.2.36 # Version bump for default ServerName to hostname
 
 import os
 import sys
@@ -14,7 +14,7 @@ import hashlib # Added for checksum calculation
 import time # Added for sleep function
 
 # --- Script Version ---
-__version__ = "1.2.35" # Updated version
+__version__ = "1.2.36" # Updated version
 
 # --- Configuration Constants (Defined at module top-level for absolute clarity and immediate availability) ---
 # Corrected: This should be the Git clone URL, not the raw content URL
@@ -413,8 +413,14 @@ def configure_apache2_webui(is_update=False):
 
 
     # Prompt for ServerName
-    server_ip = run_command(["hostname", "-I"], capture_output=True).split()[0]
-    default_server_name_prompt = server_name if server_name else server_ip
+    # Prioritize hostname for better network accessibility by default
+    hostname_cmd = run_command(["hostname"], capture_output=True).strip()
+    server_ip_cmd = run_command(["hostname", "-I"], capture_output=True).strip()
+    server_ip = server_ip_cmd.split()[0] if server_ip_cmd else "" # Get first IP or empty string
+    
+    # If a previous server_name was loaded, use that. Otherwise, use hostname, then IP.
+    default_server_name_prompt = server_name if server_name else (hostname_cmd if hostname_cmd else server_ip)
+
     user_server_name = input(f"Enter the domain name or IP address to access HFGCSpy web UI (default: {default_server_name_prompt}): ").strip()
     server_name = user_server_name if user_server_name else default_server_name_prompt
     log_info(f"HFGCSpy web UI will be accessible via: {server_name}")
@@ -581,7 +587,7 @@ def configure_apache2_webui(is_update=False):
     # Add a sleep here to allow Apache to fully restart before the script exits
     time.sleep(5) # Give Apache 5 seconds to stabilize
     log_info("Apache2 configured and restarted to serve HFGCSpy web UI.")
-    log_info(f"Access HFGCSpy at http://{server_name}/hfgcspy (and https://{server_name}/hfgcspy if SSL was configured).")
+    log_info(f"Access HfgcsPy at http://{server_name}/hfgcspy (and https://{server_name}/hfgcspy if SSL was configured).")
 
 
 def setup_systemd_service():
