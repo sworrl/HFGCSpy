@@ -1,7 +1,7 @@
 # HFGCSpy/setup.py
 # Python-based installer for HFGCSpy application.
 # This script handles all installation, configuration, and service management.
-# Version: 1.2.22 # Version bump for first-run logic and robustness
+# Version: 1.2.23 # Version bump for first-run logic and robustness
 
 import os
 import sys
@@ -12,10 +12,11 @@ import re
 import argparse
 
 # --- Script Version ---
-__version__ = "1.2.22" # Updated version
+__version__ = "1.2.23" # Updated version
 
 # --- Configuration Constants (Defined at module top-level for absolute clarity and immediate availability) ---
-HFGCSPY_REPO = "https://raw.githubusercontent.com/sworrl/HFGCSpy/main" # Base URL for raw files
+# Corrected: This should be the Git clone URL, not the raw content URL
+HFGCSPY_REPO = "https://github.com/sworrl/HFGCSpy.git" 
 HFGCSPY_SERVICE_NAME = "hfgcspy.service" # Service name is constant
 
 # Default base installation directories (THESE ARE THE TRUE CONSTANTS, always available)
@@ -164,11 +165,11 @@ def prompt_for_paths():
     log_info(f"HFGCSpy application will be installed to: {hfgcs_app_dir}")
     log_info(f"HFGCSpy web UI will be hosted at: {web_root_dir}")
 
-def install_system_and_python_deps():
+def install_system_and_python_deps(force_install=False):
     # Define a marker file to indicate if system-level dependencies have been installed
     install_marker_file = os.path.join(hfgcs_app_dir, ".hfgcspy_system_installed")
 
-    if os.path.exists(install_marker_file):
+    if os.path.exists(install_marker_file) and not force_install:
         log_info("System dependencies and RTL-SDR tools appear to be already installed. Skipping.")
         # Check if the marker file version matches current script version, for future-proofing updates
         try:
@@ -178,6 +179,11 @@ def install_system_and_python_deps():
                 log_warn(f"System dependencies marker file version ({installed_version}) does not match script version ({__version__}). Consider re-running with --force-system-install if issues arise.")
         except Exception as e:
             log_warn(f"Could not read system install marker file: {e}. Proceeding assuming installed.")
+        # Check if the repository exists, if not, clone it. This handles cases where system deps are installed
+        # but the repo wasn't cloned (e.g., failed previous run).
+        if not os.path.exists(hfgcs_app_dir) or not os.path.isdir(os.path.join(hfgcs_app_dir, '.git')):
+            log_info(f"HFGCSpy application directory {hfgcs_app_dir} not found or not a git repo. Cloning now.")
+            run_command(["git", "clone", HFGCSPY_REPO, hfgcs_app_dir])
         return False # Indicate no fresh system install
 
     log_info("Performing initial system dependency installation (this may take a while)...")
@@ -211,6 +217,11 @@ def install_system_and_python_deps():
     log_info(f"Cloning HFGCSpy application from GitHub to {hfgcs_app_dir}...")
     if os.path.exists(hfgcs_app_dir):
         log_warn(f"HFGCSpy directory {hfgcs_app_dir} already exists. Skipping clone. Use --uninstall first if you want a fresh install.")
+        # If it exists but wasn't a git repo (e.g., previous failed clone), try to re-clone or pull
+        if not os.path.isdir(os.path.join(hfgcs_app_dir, '.git')):
+            log_warn(f"Directory {hfgcs_app_dir} exists but is not a Git repository. Attempting to remove and re-clone.")
+            shutil.rmtree(hfgcs_app_dir)
+            run_command(["git", "clone", HFGCSPY_REPO, hfgcs_app_dir])
         return False # Indicate that it was not a fresh clone
     else:
         run_command(["git", "clone", HFGCSPY_REPO, hfgcs_app_dir]) 
@@ -301,7 +312,7 @@ def configure_hfgcspy_app():
 
     log_info("HFGCSpy application configured.")
 
-def configure_apache2_webui():
+def configure_apache2_webui(is_update=False):
     log_info("Configuring Apache2 to serve HFGCSpy's web UI...")
 
     log_info("Ensuring Apache2 is installed and enabled...")
@@ -336,18 +347,49 @@ def configure_apache2_webui():
     run_command(["chown", "-R", "www-data:www-data", web_root_dir])
     run_command(["chmod", "-R", "755", web_root_dir])
 
+    apache_conf_path = "/etc/apache2/sites-available/hfgcspy.conf"
+    
+    # --- Intelligent Prompting for ServerName and SSL ---
+    current_server_name = ""
+    current_ssl_cert_path = ""
+    current_ssl_key_path = ""
+    current_ssl_domain = ""
+    use_ssl = False
+
+    if is_update and os.path.exists(apache_conf_path):
+        log_info("Attempting to load existing Apache configuration for HFGCSpy...")
+        with open(apache_conf_path, 'r') as f:
+            apache_conf_content_read = f.read()
+        
+        # Extract ServerName
+        server_name_match = re.search(r"^\s*ServerName\s+(.+)$", apache_conf_content_read, re.MULTILINE)
+        if server_name_match:
+            current_server_name = server_name_match.group(1).strip()
+        
+        # Extract SSL paths
+        ssl_cert_match = re.search(r"^\s*SSLCertificateFile\s+\"(.+)\"$", apache_conf_content_read, re.MULTILINE)
+        ssl_key_match = re.search(r"^\s*SSLCertificateKeyFile\s+\"(.+)\"$", apache_conf_content_read, re.MULTILINE)
+        
+        if ssl_cert_match and ssl_key_match:
+            current_ssl_cert_path = ssl_cert_match.group(1).strip()
+            current_ssl_key_path = ssl_key_match.group(1).strip()
+            # Try to deduce SSL domain from cert path for better prompting
+            le_domain_match = re.search(r"/etc/letsencrypt/live/([^/]+)/", current_ssl_cert_path)
+            if le_domain_match:
+                current_ssl_domain = le_domain_match.group(1)
+            use_ssl = True
+            log_info("Found existing SSL configuration.")
+        else:
+            log_info("No existing SSL configuration found in Apache config.")
+
+    # Prompt for ServerName
     server_ip = run_command(["hostname", "-I"], capture_output=True).split()[0]
-    user_server_name = input(f"Enter the domain name or IP address to access HFGCSpy web UI (default: {server_ip}): ").strip()
-    server_name = user_server_name if user_server_name else server_ip
+    default_server_name_prompt = current_server_name if current_server_name else server_ip
+    user_server_name = input(f"Enter the domain name or IP address to access HFGCSpy web UI (default: {default_server_name_prompt}): ").strip()
+    server_name = user_server_name if user_server_name else default_server_name_prompt
     log_info(f"HFGCSpy web UI will be accessible via: {server_name}")
 
-    apache_conf_path = "/etc/apache2/sites-available/hfgcspy.conf" # Renamed from hfgcspy-webui.conf for simplicity
-    
-    ssl_cert_path = ""
-    ssl_key_path = ""
-    use_ssl = False
-    ssl_domain = ""
-
+    # Prompt for SSL
     letsencrypt_base_dir = "/etc/letsencrypt/live"
     le_domains = []
     if os.path.exists(letsencrypt_base_dir):
@@ -360,7 +402,16 @@ def configure_apache2_webui():
         
         if le_domains:
             log_info(f"Detected Let's Encrypt certificates for domains: {', '.join(le_domains)}")
-            if ask_yes_no("Do you want to configure HFGCSpy web UI to use HTTPS with one of these certificates?"):
+            if use_ssl and current_ssl_domain and current_ssl_domain in le_domains:
+                # If SSL was previously configured and cert still exists, ask to keep
+                if ask_yes_no(f"Do you want to continue using existing HTTPS configuration for {current_ssl_domain}? (Recommended: Yes)"):
+                    use_ssl = True
+                    ssl_domain = current_ssl_domain
+                    ssl_cert_path = current_ssl_cert_path
+                    ssl_key_path = current_ssl_key_path
+                else:
+                    use_ssl = False # User chose not to use existing SSL
+            elif ask_yes_no("Do you want to configure HFGCSpy web UI to use HTTPS with one of these certificates?"):
                 use_ssl = True
                 print("Available domains with certificates:")
                 for i, domain in enumerate(le_domains):
@@ -458,10 +509,17 @@ def configure_apache2_webui():
     with open(apache_conf_path, "w") as f:
         f.write(apache_conf_content)
 
-    # Use check_return=False for a2dissite as it might fail if 000-default.conf doesn't exist
-    run_command(["a2dissite", "000-default.conf"], check_return=False) 
+    # Only attempt to disable if the default site is actually enabled
+    if os.path.exists("/etc/apache2/sites-enabled/000-default.conf"):
+        log_info("Disabling default Apache site 000-default.conf...")
+        run_command(["a2dissite", "000-default.conf"], check_return=False) 
+    else:
+        log_info("Default Apache site 000-default.conf is not enabled or does not exist. Skipping disabling.")
+
+    log_info(f"Enabling HFGCSpy Apache site {os.path.basename(apache_conf_path)}...")
     run_command(["a2ensite", os.path.basename(apache_conf_path)]) # Enable HFGCSpy site
     
+    log_info("Restarting Apache2 service...")
     run_command(["systemctl", "restart", "apache2"])
     log_info("Apache2 configured and restarted to serve HFGCSpy web UI.")
     log_info(f"Access HFGCSpy at http://{server_name}/hfgcspy (and https://{server_name}/hfgcspy if SSL was configured).")
@@ -525,6 +583,7 @@ def update_hfgcspy_app_code():
     log_info("Reinstalling Python dependencies (if any new ones exist)...")
     pip_path = os.path.join(hfgcs_venv_dir, "bin", "pip")
     requirements_path = os.path.join(hfgcs_app_dir, "requirements.txt")
+    run_command([pip_path, "install", "--upgrade", "pip"])
     run_command([pip_path, "install", "-r", requirements_path])
 
     log_info(f"Re-copying web UI files to Apache web root: {web_root_dir}...")
@@ -653,6 +712,7 @@ def main():
     parser.add_argument('--uninstall', action='store_true', help="Uninstall HFGCSpy application and associated files.")
     parser.add_argument('--update', action='store_true', help="Update HFGCSpy application code from Git and restart service.")
     parser.add_argument('--check_sdr', action='store_true', help="Check for RTL-SDR dongle presence.")
+    parser.add_argument('--force-system-install', action='store_true', help="Force re-installation of system dependencies.")
     
     args = parser.parse_args()
 
@@ -673,9 +733,9 @@ def main():
     if args.install:
         check_root()
         prompt_for_paths() # Prompt to get user-defined paths if installing (updates globals)
-        install_system_and_python_deps()
+        install_system_and_python_deps(force_install=args.force_system_install)
         configure_hfgcspy_app()
-        configure_apache2_webui()
+        configure_apache2_webui(is_update=False) # Fresh install, no update logic for prompts
         setup_systemd_service()
         log_info("HFGCSpy installation complete. Please consider rebooting your Raspberry Pi for full effect.")
     elif args.run:
@@ -691,7 +751,13 @@ def main():
         uninstall_hfgcspy()
     elif args.update:
         check_root()
+        # For update, load paths from config first
+        load_paths_from_config()
+        # Then proceed with update steps
         update_hfgcspy_app_code()
+        configure_apache2_webui(is_update=True) # Use update logic for prompts
+        setup_systemd_service() # Re-setup service in case of changes
+        log_info("HFGCSpy update complete. Please consider rebooting your Raspberry Pi for full effect.")
     elif args.check_sdr:
         check_sdr()
     else:
