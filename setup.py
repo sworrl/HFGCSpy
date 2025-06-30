@@ -1,7 +1,7 @@
 # HFGCSpy/setup.py
 # Python-based installer for HFGCSpy application.
 # This script handles all installation, configuration, and service management.
-# Version: 1.2.34 # Version bump for fixing f-string in commented Apache config
+# Version: 1.2.35 # Version bump for fixing f-string in commented Apache config
 
 import os
 import sys
@@ -14,7 +14,7 @@ import hashlib # Added for checksum calculation
 import time # Added for sleep function
 
 # --- Script Version ---
-__version__ = "1.2.34" # Updated version
+__version__ = "1.2.35" # Updated version
 
 # --- Configuration Constants (Defined at module top-level for absolute clarity and immediate availability) ---
 # Corrected: This should be the Git clone URL, not the raw content URL
@@ -540,7 +540,7 @@ def configure_apache2_webui(is_update=False):
     SSLCertificateKeyFile "{ssl_key_path}"
     # SSLCertificateChainFile is often included in fullchain.pem.
     # If your setup requires a separate chain file, uncomment and set the path below.
-    # #SSLCertificateChainFile ""
+    # SSLCertificateChainFile ""
 
     <FilesMatch "\.(cgi|shtml|phtml|php)$">
             SSLOptions +StdEnvVars
