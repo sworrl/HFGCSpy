@@ -1,7 +1,7 @@
 # HFGCSpy/setup.py
 # Python-based installer for HFGCSpy application.
 # This script handles all installation, configuration, and service management.
-# Version: 1.2.28 # Version bump for Apache DocumentRoot syntax fix (final attempt)
+# Version: 1.2.32 # Version bump for separate HTTP/HTTPS configs and robust Apache management
 
 import os
 import sys
@@ -13,7 +13,7 @@ import argparse
 import hashlib # Added for checksum calculation
 
 # --- Script Version ---
-__version__ = "1.2.28" # Updated version
+__version__ = "1.2.32" # Updated version
 
 # --- Configuration Constants (Defined at module top-level for absolute clarity and immediate availability) ---
 # Corrected: This should be the Git clone URL, not the raw content URL
@@ -282,7 +282,7 @@ def configure_hfgcspy_app():
     # Add sdr section if it doesn't exist, to ensure fallbacks are always there
     if not config_obj.has_section('sdr'):
         config_obj.add_section('sdr')
-        config_obj.set('sdr', 'sample_rate', '2048000')
+        config_obj.set('sdr', 'sample_rate', '20480_00')
         config_obj.set('sdr', 'center_freq_hz', '8992000')
         config_obj.set('sdr', 'gain', 'auto')
         config_obj.set('sdr', 'ppm_correction', '0')
@@ -340,8 +340,8 @@ def configure_apache2_webui(is_update=False):
         run_command(["systemctl", "enable", "apache2"])
         run_command(["systemctl", "start", "apache2"])
     
-    log_info("Enabling Apache2 modules: headers, ssl, proxy, proxy_http...")
-    run_command("a2enmod headers ssl proxy proxy_http", shell=True, check_return=False)
+    log_info("Enabling Apache2 modules: headers, ssl, proxy, proxy_http, alias...") # Added 'alias'
+    run_command("a2enmod headers ssl proxy proxy_http alias", shell=True, check_return=False)
 
     log_info(f"Copying HFGCSpy web UI files to Apache web root: {web_root_dir}")
     # Instead of shutil.rmtree and shutil.copytree, we'll use checksums for selective copying
@@ -369,44 +369,51 @@ def configure_apache2_webui(is_update=False):
     run_command(["chown", "-R", "www-data:www-data", web_root_dir])
     run_command(["chmod", "-R", "755", web_root_dir])
 
-    apache_conf_path = "/etc/apache2/sites-available/hfgcspy.conf"
+    http_conf_path = "/etc/apache2/sites-available/hfgcspy-http.conf"
+    https_conf_path = "/etc/apache2/sites-available/hfgcspy-https.conf"
     
     # --- Intelligent Prompting for ServerName and SSL ---
-    current_server_name = ""
-    current_ssl_cert_path = ""
-    current_ssl_key_path = ""
-    current_ssl_domain = ""
+    server_name = ""
+    ssl_cert_path = ""
+    ssl_key_path = ""
+    ssl_domain = ""
     use_ssl = False
 
-    if is_update and os.path.exists(apache_conf_path):
-        log_info("Attempting to load existing Apache configuration for HFGCSpy...")
-        with open(apache_conf_path, 'r') as f:
-            apache_conf_content_read = f.read()
-        
-        # Extract ServerName
-        server_name_match = re.search(r"^\s*ServerName\s+(.+)$", apache_conf_content_read, re.MULTILINE)
-        if server_name_match:
-            current_server_name = server_name_match.group(1).strip()
-        
-        # Extract SSL paths
-        ssl_cert_match = re.search(r"^\s*SSLCertificateFile\s+\"(.+)\"$", apache_conf_content_read, re.MULTILINE)
-        ssl_key_match = re.search(r"^\s*SSLCertificateKeyFile\s+\"(.+)\"$", apache_conf_content_read, re.MULTILINE)
-        
-        if ssl_cert_match and ssl_key_match:
-            current_ssl_cert_path = ssl_cert_match.group(1).strip()
-            current_ssl_key_path = ssl_key_match.group(1).strip()
-            # Try to deduce SSL domain from cert path for better prompting
-            le_domain_match = re.search(r"/etc/letsencrypt/live/([^/]+)/", current_ssl_cert_path)
-            if le_domain_match:
-                current_ssl_domain = le_domain_match.group(1)
-            use_ssl = True
-            log_info("Found existing SSL configuration.")
-        else:
-            log_info("No existing SSL configuration found in Apache config.")
+    # Try to load existing ServerName from HTTP config if it exists
+    if os.path.exists(http_conf_path):
+        try:
+            with open(http_conf_path, 'r') as f:
+                http_content_read = f.read()
+            server_name_match = re.search(r"^\s*ServerName\s+(.+)$", http_content_read, re.MULTILINE)
+            if server_name_match:
+                server_name = server_name_match.group(1).strip()
+        except Exception as e:
+            log_warn(f"Could not read existing HTTP config for ServerName: {e}")
+
+    # Try to load existing SSL config from HTTPS config if it exists
+    if os.path.exists(https_conf_path):
+        try:
+            with open(https_conf_path, 'r') as f:
+                https_content_read = f.read()
+            ssl_cert_match = re.search(r"^\s*SSLCertificateFile\s+\"(.+)\"$", https_content_read, re.MULTILINE)
+            ssl_key_match = re.search(r"^\s*SSLCertificateKeyFile\s+\"(.+)\"$", https_content_read, re.MULTILINE)
+            if ssl_cert_match and ssl_key_match:
+                ssl_cert_path = ssl_cert_match.group(1).strip()
+                ssl_key_path = ssl_key_match.group(1).strip()
+                le_domain_match = re.search(r"/etc/letsencrypt/live/([^/]+)/", ssl_cert_path)
+                if le_domain_match:
+                    ssl_domain = le_domain_match.group(1)
+                use_ssl = True
+                log_info("Found existing SSL configuration.")
+            else:
+                log_info("No existing SSL configuration found in HTTPS config.")
+        except Exception as e:
+            log_warn(f"Could not read existing HTTPS config for SSL paths: {e}")
+
 
     # Prompt for ServerName
     server_ip = run_command(["hostname", "-I"], capture_output=True).split()[0]
-    default_server_name_prompt = current_server_name if current_server_name else server_ip
+    default_server_name_prompt = server_name if server_name else server_ip
     user_server_name = input(f"Enter the domain name or IP address to access HFGCSpy web UI (default: {default_server_name_prompt}): ").strip()
     server_name = user_server_name if user_server_name else default_server_name_prompt
     log_info(f"HFGCSpy web UI will be accessible via: {server_name}")
@@ -424,13 +431,9 @@ def configure_apache2_webui(is_update=False):
         
         if le_domains:
             log_info(f"Detected Let's Encrypt certificates for domains: {', '.join(le_domains)}")
-            if use_ssl and current_ssl_domain and current_ssl_domain in le_domains:
-                # If SSL was previously configured and cert still exists, ask to keep
-                if ask_yes_no(f"Do you want to continue using existing HTTPS configuration for {current_ssl_domain}? (Recommended: Yes)"):
+            if use_ssl and ssl_domain and ssl_domain in le_domains:
+                if ask_yes_no(f"Do you want to continue using existing HTTPS configuration for {ssl_domain}? (Recommended: Yes)"):
                     use_ssl = True
-                    ssl_domain = current_ssl_domain
-                    ssl_cert_path = current_ssl_cert_path
-                    ssl_key_path = current_ssl_key_path
                 else:
                     use_ssl = False # User chose not to use existing SSL
             elif ask_yes_no("Do you want to configure HFGCSpy web UI to use HTTPS with one of these certificates?"):
@@ -459,14 +462,30 @@ def configure_apache2_webui(is_update=False):
         log_info(f"Let's Encrypt directory {letsencrypt_base_dir} not found. HTTPS will not be automatically configured.")
 
 
-    # Generate Apache config content
-    # Removed inline comments from DocumentRoot lines to fix syntax error
-    apache_conf_content = f"""
+    # --- Clean up existing HFGCSpy Apache configs ---
+    conf_files_to_clean = ["hfgcspy.conf", "hfgcspy-http.conf", "hfgcspy-https.conf"]
+    for conf_file_name in conf_files_to_clean:
+        site_avail_path = os.path.join("/etc/apache2/sites-available", conf_file_name)
+        site_enabled_path = os.path.join("/etc/apache2/sites-enabled", conf_file_name)
+        
+        if os.path.exists(site_enabled_path):
+            log_info(f"Disabling existing Apache site link: {conf_file_name}...")
+            run_command(["a2dissite", conf_file_name], check_return=False)
+        if os.path.exists(site_avail_path):
+            log_info(f"Removing existing Apache site file: {site_avail_path}...")
+            os.remove(site_avail_path)
+        if os.path.exists(site_enabled_path): # Check again in case a2dissite didn't remove symlink
+             log_info(f"Removing lingering symlink: {site_enabled_path}...")
+             os.remove(site_enabled_path)
+
+
+    # --- Write and Enable new HTTP config ---
+    with open(http_conf_path, "w") as f:
+        f.write(f"""
 <VirtualHost *:80>
     ServerName {server_name}
     DocumentRoot /var/www/html
 
-    # Alias for the HFGCSpy web UI files
     Alias /hfgcspy "{web_root_dir}"
     <Directory "{web_root_dir}">
         Options Indexes FollowSymLinks
@@ -474,7 +493,6 @@ def configure_apache2_webui(is_update=False):
         Require all granted
     </Directory>
 
-    # Alias for the HFGCSpy data directory (status.json, messages.json, recordings)
     Alias /hfgcspy_data "{hfgcs_data_dir}"
     <Directory "{hfgcs_data_dir}">
         Options Indexes FollowSymLinks
@@ -485,14 +503,20 @@ def configure_apache2_webui(is_update=False):
     ErrorLog ${{APACHE_LOG_DIR}}/hfgcspy_webui_error.log
     CustomLog ${{APACHE_LOG_DIR}}/hfgcspy_webui_access.log combined
 </VirtualHost>
-"""
-    if use_ssl and os.path.exists(ssl_cert_path) and os.path.exists(ssl_key_path):
-        apache_conf_content += f"""
+""")
+    log_info(f"Wrote HTTP Apache config to {http_conf_path}")
+    run_command(["a2ensite", os.path.basename(http_conf_path)])
+    log_info(f"Enabled HTTP Apache site {os.path.basename(http_conf_path)}")
+
+    # --- Write and Enable new HTTPS config (if applicable) ---
+    if use_ssl and ssl_cert_path and ssl_key_path:
+        with open(https_conf_path, "w") as f:
+            f.write(f"""
+<IfModule mod_ssl.c>
 <VirtualHost *:443>
     ServerName {server_name}
     DocumentRoot /var/www/html
 
-    # Alias for the HFGCSpy web UI files
     Alias /hfgcspy "{web_root_dir}"
     <Directory "{web_root_dir}">
         Options Indexes FollowSymLinks
@@ -500,7 +524,6 @@ def configure_apache2_webui(is_update=False):
         Require all granted
     </Directory>
 
-    # Alias for the HFGCSpy data directory (status.json, messages.json, recordings)
     Alias /hfgcspy_data "{hfgcs_data_dir}"
     <Directory "{hfgcs_data_dir}">
         Options Indexes FollowSymLinks
@@ -514,23 +537,32 @@ def configure_apache2_webui(is_update=False):
     SSLEngine on
     SSLCertificateFile "{ssl_cert_path}"
     SSLCertificateKeyFile "{ssl_key_path}"
-"""
-        # Add SSLCertificateChainFile if chain.pem exists and is not the fullchain (common setup)
-        chain_path = os.path.join(letsencrypt_base_dir, ssl_domain, "chain.pem")
-        if os.path.exists(chain_path) and ssl_cert_path != os.path.join(letsencrypt_base_dir, ssl_domain, "fullchain.pem"):
-             apache_conf_content += f"    SSLCertificateChainFile \"{chain_path}\"\n"
-        
-        apache_conf_content += """
-    # HSTS (optional, highly recommended for security)
+    # SSLCertificateChainFile is often included in fullchain.pem.
+    # If your setup requires a separate chain file, uncomment and set the path below.
+    # #SSLCertificateChainFile "{ssl_chain_path}"
+
+    <FilesMatch "\.(cgi|shtml|phtml|php)$">
+            SSLOptions +StdEnvVars
+    </FilesMatch>
+    <Directory /usr/lib/cgi-bin>
+            SSLOptions +StdEnvVars
+    </Directory>
+
+    BrowserMatch "MSIE [2-6]" \
+            nokeepalive ssl-unclean-shutdown \
+            downgrade-1.0 force-response-1.0
+    BrowserMatch "MSIE [17-9]" ssl-unclean-shutdown
+
     Header always set Strict-Transport-Security "max-age=63072000; includeSubDomains; preload"
 </VirtualHost>
-"""
-        log_info(f"Apache2 SSL configuration included for {ssl_domain}.")
-    else:
-        log_info("HTTPS will not be configured automatically. Web UI will be available via HTTP only.")
+</IfModule>
+""")
+        log_info(f"Wrote HTTPS Apache config to {https_conf_path}")
+        run_command(["a2ensite", os.path.basename(https_conf_path)])
+        log_info(f"Enabled HTTPS Apache site {os.path.basename(https_conf_path)}")
+    elif not use_ssl:
+        log_info("Skipping HTTPS Apache configuration as SSL was not chosen or certs are missing.")
 
-    with open(apache_conf_path, "w") as f:
-        f.write(apache_conf_content)
 
     # Only attempt to disable if the default site is actually enabled
     if os.path.exists("/etc/apache2/sites-enabled/000-default.conf"):
@@ -539,9 +571,10 @@ def configure_apache2_webui(is_update=False):
     else:
         log_info("Default Apache site 000-default.conf is not enabled or does not exist. Skipping disabling.")
 
-    log_info(f"Enabling HFGCSpy Apache site {os.path.basename(apache_conf_path)}...")
-    run_command(["a2ensite", os.path.basename(apache_conf_path)]) # Enable HFGCSpy site
-    
+    # Run configtest before restarting to catch any new syntax errors immediately
+    log_info("Running apache2ctl configtest before restarting Apache...")
+    run_command(["apache2ctl", "configtest"]) # This will now halt if there's a syntax error
+
     log_info("Restarting Apache2 service...")
     run_command(["systemctl", "restart", "apache2"])
     log_info("Apache2 configured and restarted to serve HFGCSpy web UI.")
@@ -729,4 +762,80 @@ def main():
     # For --install, prompt_for_paths() will update them.
     # For other commands, load_paths_from_config() will attempt to update them.
     # This structure ensures they always have *some* value before being used.
-    global hfgcs_app_dir, hf
+    global hfgcs_app_dir, hfgcs_config_file, hfgcs_db_path, hfgcs_log_path
+    global web_root_dir, hfgcs_data_dir, hfgcs_recordings_path, hfgcs_config_json_path
+
+    log_info(f"HFGCSpy Installer (Version: {__version__})")
+
+    parser = argparse.ArgumentParser(description=f"HFGCSpy Installer (Version: {__version__})")
+    parser.add_argument('--install', action='store_true', help="Install HFGCSpy application and configure services.")
+    parser.add_argument('--run', action='store_true', help="Run HFGCSpy main application directly (for debugging).")
+    parser.add_argument('--stop', action='store_true', help="Stop HFGCSpy service.")
+    parser.add_argument('--status', action='store_true', help="Check HFGCSpy and Apache2 service status.")
+    parser.add_argument('--uninstall', action='store_true', help="Uninstall HFGCSpy application and associated files.")
+    parser.add_argument('--update', action='store_true', help="Update HFGCSpy application code from Git and restart service.")
+    parser.add_argument('--check_sdr', action='store_true', help="Check for RTL-SDR dongle presence.")
+    parser.add_argument('--force-system-install', action='store_true', help="Force re-installation of system dependencies.")
+    
+    args = parser.parse_args()
+
+    # Always set paths with defaults first to ensure they are never None
+    set_global_installation_paths(APP_DIR_DEFAULT, WEB_ROOT_DIR_DEFAULT) 
+
+    # Determine if HFGCSpy is already installed in the default location
+    is_already_installed = os.path.exists(APP_DIR_DEFAULT) and \
+                           os.path.isdir(os.path.join(APP_DIR_DEFAULT, '.git')) and \
+                           os.path.exists(os.path.join(APP_DIR_DEFAULT, 'config.ini'))
+
+    # Process arguments
+    if len(sys.argv) == 1:
+        parser.print_help()
+        sys.exit(0)
+
+    if args.install:
+        check_root()
+        if is_already_installed:
+            log_info(f"HFGCSpy appears to be already installed at {APP_DIR_DEFAULT}. Proceeding with update logic.")
+            load_paths_from_config() # Load existing paths for update
+            install_system_and_python_deps(force_install=args.force_system_install) # Check/install system deps
+            update_hfgcspy_app_code() # Pull latest code, reinstall python deps, recopy web UI
+            configure_hfgcspy_app() # Reconfigure app's config.ini
+            configure_apache2_webui(is_update=True) # Use update logic for Apache prompts
+            setup_systemd_service() # Re-setup service in case of changes
+            log_info("HFGCSpy installation/update complete. Please consider rebooting your Raspberry Pi for full effect.")
+        else:
+            log_info("Performing a fresh HFGCSpy installation.")
+            prompt_for_paths() # Only prompt if it's truly a fresh install
+            install_system_and_python_deps(force_install=args.force_system_install)
+            configure_hfgcspy_app()
+            configure_apache2_webui(is_update=False) # Fresh install, no update logic for prompts
+            setup_systemd_service()
+            log_info("HFGCSpy installation complete. Please consider rebooting your Raspberry Pi for full effect.")
+    elif args.run:
+        check_root() # Running main app requires root for SDR
+        run_hfgcspy()
+    elif args.stop:
+        check_root()
+        stop_hfgcspy()
+    elif args.status:
+        status_hfgcspy()
+    elif args.uninstall:
+        check_root()
+        uninstall_hfgcspy()
+    elif args.update:
+        check_root()
+        # For update, load paths from config first
+        load_paths_from_config()
+        # Then proceed with update steps
+        install_system_and_python_deps(force_install=args.force_system_install) # Check/install system deps
+        update_hfgcspy_app_code()
+        configure_apache2_webui(is_update=True) # Use update logic for prompts
+        setup_systemd_service() # Re-setup service in case of changes
+        log_info("HFGCSpy update complete. Please consider rebooting your Raspberry Pi for full effect.")
+    elif args.check_sdr:
+        check_sdr()
+    else:
+        parser.print_help()
+
+if __name__ == "__main__":
+    main()
