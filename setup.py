@@ -1,7 +1,7 @@
 # HFGCSpy/setup.py
 # Python-based installer for HFGCSpy application.
 # This script handles all installation, configuration, and service management.
-# Version: 1.2.5 # Version bump for this fix
+# Version: 1.2.6 # Version bump for this fix
 
 import os
 import sys
@@ -12,7 +12,7 @@ import re
 import argparse
 
 # --- Script Version ---
-__version__ = "1.2.5" # Updated version
+__version__ = "1.2.6" # Updated version
 
 # --- Configuration Variables (Defaults - always initialized) ---
 HFGCSPY_REPO = "https://github.com/sworrl/HFGCSpy.git" # IMPORTANT: Ensure this is correct!
@@ -21,17 +21,16 @@ HFGCSPY_REPO = "https://github.com/sworrl/HFGCSpy.git" # IMPORTANT: Ensure this 
 DEFAULT_APP_DIR = "/opt/hfgcspy"
 DEFAULT_WEB_ROOT_DIR = "/var/www/html/hfgcspy"
 
-# Global variables, declared but not fully initialized here as they depend on execution context
-# They will be set by _set_global_derived_paths()
-HFGCSPY_APP_DIR = "" 
-HFGCSPY_VENV_DIR = ""
-HFGCSPY_CONFIG_FILE = ""
-HFGCSPY_SERVICE_NAME = "hfgcspy.service"
+# Global variables, initialized with defaults, possibly updated later by prompts or config loading
+HFGCSpy_APP_DIR = DEFAULT_APP_DIR 
+HFGCSpy_VENV_DIR = os.path.join(HFGCSpy_APP_DIR, "venv")
+HFGCSpy_CONFIG_FILE = os.path.join(HFGCSpy_APP_DIR, "config.ini")
+HFGCSpy_SERVICE_NAME = "hfgcspy.service"
 
-WEB_ROOT_DIR = ""
-HFGCSPY_DATA_DIR = ""
-HFGCSPY_RECORDINGS_PATH = ""
-HFGCSPY_CONFIG_JSON_PATH = ""
+WEB_ROOT_DIR = DEFAULT_WEB_ROOT_DIR
+HFGCSpy_DATA_DIR = os.path.join(WEB_ROOT_DIR, "hfgcspy_data")
+HFGCSpy_RECORDINGS_PATH = os.path.join(HFGCSpy_DATA_DIR, "recordings")
+HFGCSpy_CONFIG_JSON_PATH = os.path.join(HFGCSpy_DATA_DIR, "config.json")
 
 
 # --- Helper Functions ---
@@ -156,6 +155,9 @@ def prompt_for_paths():
     log_info(f"HFGCSpy web UI will be hosted at: {WEB_ROOT_DIR}")
 
 def install_system_and_python_deps():
+    # Declare HFGCSpy_REPO as global here to ensure it's recognized
+    global HFGCSpy_REPO 
+
     log_info("Updating package lists and installing core system dependencies...")
     run_command("apt update", shell=True)
     run_command([
@@ -241,9 +243,9 @@ def configure_hfgcspy_app():
     run_command(["chmod", "-R", "u+rwX,go-w", HFGCSpy_APP_DIR]) # Restrict write from others
 
     # Create web-accessible data directories and set permissions for Apache
-    log_info(f"Creating web-accessible data directories: {HFGCSPY_DATA_DIR} and {HFGCSPY_RECORDINGS_PATH}.")
-    os.makedirs(HFGCSPY_DATA_DIR, exist_ok=True)
-    os.makedirs(HFGCSPY_RECORDINGS_PATH, exist_ok=True)
+    log_info(f"Creating web-accessible data directories: {HFGCSpy_DATA_DIR} and {HFGCSpy_RECORDINGS_PATH}.")
+    os.makedirs(HFGCSpy_DATA_DIR, exist_ok=True)
+    os.makedirs(HFGCSpy_RECORDINGS_PATH, exist_ok=True)
     run_command(["chown", "-R", "www-data:www-data", HFGCSpy_DATA_DIR])
     run_command(["chmod", "-R", "775", HFGCSpy_DATA_DIR]) # Allow www-data write, others read/execute
 
@@ -572,8 +574,13 @@ def main():
     # If not performing a fresh install, attempt to load paths from existing config.ini
     # This ensures commands like --status, --stop, --update etc. know where the app is installed.
     if not args.install:
-        _load_paths_from_config()
-    
+        _load_paths_from_config() # This function will set the global path variables
+    else:
+        # For install, ensure globals are reset to defaults if not prompted, 
+        # as prompt_for_paths will define them later
+        _set_global_derived_paths(DEFAULT_APP_DIR, DEFAULT_WEB_ROOT_DIR)
+
+
     # Process arguments
     if len(sys.argv) == 1:
         parser.print_help()
