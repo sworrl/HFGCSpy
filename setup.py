@@ -1,7 +1,7 @@
 # HFGCSpy/setup.py
 # Python-based installer for HFGCSpy application.
 # This script handles all installation, configuration, and service management.
-# Version: 1.2.27 # Version bump for no-pip/venv, improved idempotency, and Apache syntax fix
+# Version: 1.2.28 # Version bump for Apache DocumentRoot syntax fix (final attempt)
 
 import os
 import sys
@@ -13,7 +13,7 @@ import argparse
 import hashlib # Added for checksum calculation
 
 # --- Script Version ---
-__version__ = "1.2.27" # Updated version
+__version__ = "1.2.28" # Updated version
 
 # --- Configuration Constants (Defined at module top-level for absolute clarity and immediate availability) ---
 # Corrected: This should be the Git clone URL, not the raw content URL
@@ -729,80 +729,4 @@ def main():
     # For --install, prompt_for_paths() will update them.
     # For other commands, load_paths_from_config() will attempt to update them.
     # This structure ensures they always have *some* value before being used.
-    global hfgcs_app_dir, hfgcs_config_file, hfgcs_db_path, hfgcs_log_path
-    global web_root_dir, hfgcs_data_dir, hfgcs_recordings_path, hfgcs_config_json_path
-
-    log_info(f"HFGCSpy Installer (Version: {__version__})")
-
-    parser = argparse.ArgumentParser(description=f"HFGCSpy Installer (Version: {__version__})")
-    parser.add_argument('--install', action='store_true', help="Install HFGCSpy application and configure services.")
-    parser.add_argument('--run', action='store_true', help="Run HFGCSpy main application directly (for debugging).")
-    parser.add_argument('--stop', action='store_true', help="Stop HFGCSpy service.")
-    parser.add_argument('--status', action='store_true', help="Check HFGCSpy and Apache2 service status.")
-    parser.add_argument('--uninstall', action='store_true', help="Uninstall HFGCSpy application and associated files.")
-    parser.add_argument('--update', action='store_true', help="Update HFGCSpy application code from Git and restart service.")
-    parser.add_argument('--check_sdr', action='store_true', help="Check for RTL-SDR dongle presence.")
-    parser.add_argument('--force-system-install', action='store_true', help="Force re-installation of system dependencies.")
-    
-    args = parser.parse_args()
-
-    # Always set paths with defaults first to ensure they are never None
-    set_global_installation_paths(APP_DIR_DEFAULT, WEB_ROOT_DIR_DEFAULT) 
-
-    # Determine if HFGCSpy is already installed in the default location
-    is_already_installed = os.path.exists(APP_DIR_DEFAULT) and \
-                           os.path.isdir(os.path.join(APP_DIR_DEFAULT, '.git')) and \
-                           os.path.exists(os.path.join(APP_DIR_DEFAULT, 'config.ini'))
-
-    # Process arguments
-    if len(sys.argv) == 1:
-        parser.print_help()
-        sys.exit(0)
-
-    if args.install:
-        check_root()
-        if is_already_installed:
-            log_info(f"HFGCSpy appears to be already installed at {APP_DIR_DEFAULT}. Proceeding with update logic.")
-            load_paths_from_config() # Load existing paths for update
-            install_system_and_python_deps(force_install=args.force_system_install) # Check/install system deps
-            update_hfgcspy_app_code() # Pull latest code, reinstall python deps, recopy web UI
-            configure_hfgcspy_app() # Reconfigure app's config.ini
-            configure_apache2_webui(is_update=True) # Use update logic for Apache prompts
-            setup_systemd_service() # Re-setup service in case of changes
-            log_info("HFGCSpy installation/update complete. Please consider rebooting your Raspberry Pi for full effect.")
-        else:
-            log_info("Performing a fresh HFGCSpy installation.")
-            prompt_for_paths() # Only prompt if it's truly a fresh install
-            install_system_and_python_deps(force_install=args.force_system_install)
-            configure_hfgcspy_app()
-            configure_apache2_webui(is_update=False) # Fresh install, no update logic for prompts
-            setup_systemd_service()
-            log_info("HFGCSpy installation complete. Please consider rebooting your Raspberry Pi for full effect.")
-    elif args.run:
-        check_root() # Running main app requires root for SDR
-        run_hfgcspy()
-    elif args.stop:
-        check_root()
-        stop_hfgcspy()
-    elif args.status:
-        status_hfgcspy()
-    elif args.uninstall:
-        check_root()
-        uninstall_hfgcspy()
-    elif args.update:
-        check_root()
-        # For update, load paths from config first
-        load_paths_from_config()
-        # Then proceed with update steps
-        install_system_and_python_deps(force_install=args.force_system_install) # Check/install system deps
-        update_hfgcspy_app_code()
-        configure_apache2_webui(is_update=True) # Use update logic for prompts
-        setup_systemd_service() # Re-setup service in case of changes
-        log_info("HFGCSpy update complete. Please consider rebooting your Raspberry Pi for full effect.")
-    elif args.check_sdr:
-        check_sdr()
-    else:
-        parser.print_help()
-
-if __name__ == "__main__":
-    main()
+    global hfgcs_app_dir, hf
