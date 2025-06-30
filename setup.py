@@ -1,7 +1,7 @@
 # HFGCSpy/setup.py
 # Python-based installer for HFGCSpy application.
 # This script handles all installation, configuration, and service management.
-# Version: 1.2.10 # Version bump for this fix
+# Version: 1.2.11 # Version bump for this critical fix
 
 import os
 import sys
@@ -12,26 +12,27 @@ import re
 import argparse
 
 # --- Script Version ---
-__version__ = "1.2.10" # Updated version
+__version__ = "1.2.11" # Updated version
 
-# --- Configuration Variables (Defaults - always initialized as base) ---
+# --- Configuration Variables (Defaults - always initialized as base constants) ---
 HFGCSPY_REPO = "https://github.com/sworrl/HFGCSpy.git" # IMPORTANT: Ensure this is correct!
 
-# These are now strict base directories at module level
+# These are now strict base directory constants at module level
 HFGCSPY_APP_DIR_BASE = "/opt/hfgcspy"
 WEB_ROOT_DIR_BASE = "/var/www/html/hfgcspy"
 
-# Global variables that hold the *actual* paths after initialization/loading
-# Initialized with bases, will be updated by path management functions
-HFGCSpy_APP_DIR = HFGCSPY_APP_DIR_BASE 
-HFGCSpy_VENV_DIR = os.path.join(HFGCSPY_APP_DIR, "venv")
-HFGCSpy_CONFIG_FILE = os.path.join(HFGCSpy_APP_DIR, "config.ini")
-HFGCSpy_SERVICE_NAME = "hfgcspy.service"
+# Global variables that hold the *actual* current paths.
+# They are initialized to None or empty strings here, and their actual values
+# are set consistently and explicitly by _update_global_paths()
+HFGCSpy_APP_DIR = None 
+HFGCSpy_VENV_DIR = None
+HFGCSpy_CONFIG_FILE = None
+HFGCSpy_SERVICE_NAME = "hfgcspy.service" # This can be a constant
 
-WEB_ROOT_DIR = WEB_ROOT_DIR_BASE
-HFGCSPY_DATA_DIR = os.path.join(WEB_ROOT_DIR, "hfgcspy_data")
-HFGCSPY_RECORDINGS_PATH = os.path.join(HFGCSPY_DATA_DIR, "recordings")
-HFGCSPY_CONFIG_JSON_PATH = os.path.join(HFGCSpy_DATA_DIR, "config.json")
+WEB_ROOT_DIR = None
+HFGCSPY_DATA_DIR = None
+HFGCSPY_RECORDINGS_PATH = None
+HFGCSPY_CONFIG_JSON_PATH = None
 
 
 # --- Helper Functions ---
@@ -79,16 +80,19 @@ def check_root():
 
 # --- Path Management Functions ---
 
-def _update_global_paths(app_dir, web_root_dir):
-    """Updates all global path variables based on the determined app and web root dirs."""
+def _update_global_paths(app_dir_base_val, web_root_dir_base_val):
+    """
+    Calculates and updates all global path variables based on the provided
+    base app and web root directories.
+    """
     global HFGCSpy_APP_DIR, HFGCSpy_VENV_DIR, HFGCSpy_CONFIG_FILE
     global WEB_ROOT_DIR, HFGCSpy_DATA_DIR, HFGCSpy_RECORDINGS_PATH, HFGCSpy_CONFIG_JSON_PATH
 
-    HFGCSpy_APP_DIR = app_dir
+    HFGCSpy_APP_DIR = app_dir_base_val
     HFGCSpy_VENV_DIR = os.path.join(HFGCSpy_APP_DIR, "venv")
     HFGCSpy_CONFIG_FILE = os.path.join(HFGCSpy_APP_DIR, "config.ini")
     
-    WEB_ROOT_DIR = web_root_dir
+    WEB_ROOT_DIR = web_root_dir_base_val
     HFGCSpy_DATA_DIR = os.path.join(WEB_ROOT_DIR, "hfgcspy_data")
     HFGCSPY_RECORDINGS_PATH = os.path.join(HFGCSpy_DATA_DIR, "recordings")
     HFGCSPY_CONFIG_JSON_PATH = os.path.join(HFGCSpy_DATA_DIR, "config.json")
@@ -98,7 +102,7 @@ def _load_paths_from_config():
     # This function will call _update_global_paths once it has determined the base directories.
     
     config_read = configparser.ConfigParser()
-    installed_config_path = os.path.join(HFGCSPY_APP_DIR_BASE, "config.ini") # Use BASE for checking existence
+    installed_config_path = os.path.join(HFGCSpy_APP_DIR_BASE, "config.ini") # Use BASE for checking existence
 
     if os.path.exists(installed_config_path):
         try:
@@ -117,18 +121,18 @@ def _load_paths_from_config():
                 log_warn("app_paths section or status_file option missing in config.ini. Using default WEB_ROOT_DIR.")
 
             # If app_dir_from_config is empty (e.g., config.ini is minimal), use default base
-            if not app_dir_from_config: app_dir_from_config = HFGCSPY_APP_DIR_BASE
+            if not app_dir_from_config: app_dir_from_config = HFGCSpy_APP_DIR_BASE
 
             _update_global_paths(app_dir_from_config, web_root_dir_from_config)
             log_info(f"Loaded install paths from config: App='{HFGCSpy_APP_DIR}', Web='{WEB_ROOT_DIR}'")
             return True # Paths loaded successfully
         except configparser.Error as e:
             log_warn(f"Error reading config.ini for paths: {e}. Falling back to default paths.")
-            _update_global_paths(HFGCSPY_APP_DIR_BASE, WEB_ROOT_DIR_BASE) # Ensure paths are reset to defaults
+            _update_global_paths(HFGCSpy_APP_DIR_BASE, WEB_ROOT_DIR_BASE) # Ensure paths are reset to defaults
             return False
     else:
         log_warn("config.ini not found at default app directory. Using default paths.")
-        _update_global_paths(HFGCSPY_APP_DIR_BASE, WEB_ROOT_DIR_BASE) # Ensure paths are set even if config not found
+        _update_global_paths(HFGCSpy_APP_DIR_BASE, WEB_ROOT_DIR_BASE) # Ensure paths are set even if config not found
         return False
 
 # --- Installation Steps ---
@@ -437,7 +441,7 @@ WantedBy=multi-user.target
     run_command(["systemctl", "daemon-reload"])
     
     if ask_yes_no("Do you want HFGCSpy to start automatically at machine boot? (Recommended: Yes)"):
-        run_command(["systemctl", "enable", HFGCSPY_SERVICE_NAME])
+        run_command(["systemctl", "enable", HFGCSpy_SERVICE_NAME])
         log_info("HFGCSpy service enabled to start automatically at boot.")
     else:
         run_command(["systemctl", "disable", HFGCSpy_SERVICE_NAME])
@@ -568,13 +572,12 @@ def main():
 
     # Call _set_global_derived_paths initially with defaults.
     # This ensures all global path variables are set to a baseline.
-    _set_global_derived_paths(HFGCSPY_APP_DIR_BASE, WEB_ROOT_DIR_BASE) # Use the BASE constants here
+    _update_global_paths(HFGCSPY_APP_DIR_BASE, WEB_ROOT_DIR_BASE) # Call this to set initial global paths
 
     # If not performing a fresh install, attempt to load paths from existing config.ini
     # This will override the defaults set above if a config is found.
     if not args.install:
-        _load_paths_from_config() # This function will call _set_global_derived_paths with loaded paths
-    # else: If it's an install, prompt_for_paths will be called next, which will update globals via _set_global_derived_paths
+        _load_paths_from_config() # This function will call _update_global_paths with loaded paths
 
 
     # Process arguments
