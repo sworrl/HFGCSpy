@@ -1,7 +1,7 @@
 # HFGCSpy/setup.py
 # Python-based installer for HFGCSpy application.
 # This script handles all installation, configuration, and service management.
-# Version: 1.2.6 # Version bump for this fix
+# Version: 1.2.7 # Version bump for this fix
 
 import os
 import sys
@@ -12,7 +12,7 @@ import re
 import argparse
 
 # --- Script Version ---
-__version__ = "1.2.6" # Updated version
+__version__ = "1.2.7" # Updated version
 
 # --- Configuration Variables (Defaults - always initialized) ---
 HFGCSPY_REPO = "https://github.com/sworrl/HFGCSpy.git" # IMPORTANT: Ensure this is correct!
@@ -155,8 +155,7 @@ def prompt_for_paths():
     log_info(f"HFGCSpy web UI will be hosted at: {WEB_ROOT_DIR}")
 
 def install_system_and_python_deps():
-    # Declare HFGCSpy_REPO as global here to ensure it's recognized
-    global HFGCSpy_REPO 
+    global HFGCSpy_REPO # Declare as global to ensure it's recognized
 
     log_info("Updating package lists and installing core system dependencies...")
     run_command("apt update", shell=True)
@@ -574,10 +573,14 @@ def main():
     # If not performing a fresh install, attempt to load paths from existing config.ini
     # This ensures commands like --status, --stop, --update etc. know where the app is installed.
     if not args.install:
-        _load_paths_from_config() # This function will set the global path variables
+        # Before loading config, ensure DEFAULT_APP_DIR is set to check for existing config
+        # This part is crucial for making sure path variables are defined for _load_paths_from_config
+        _set_global_derived_paths(DEFAULT_APP_DIR, DEFAULT_WEB_ROOT_DIR) # Initialize with defaults
+        _load_paths_from_config() # This function will set the global path variables based on existing config
     else:
-        # For install, ensure globals are reset to defaults if not prompted, 
-        # as prompt_for_paths will define them later
+        # For install, prompt_for_paths will define them later based on user input
+        # We still call _set_global_derived_paths here to ensure they are initialized
+        # with default values before prompt_for_paths potentially updates them.
         _set_global_derived_paths(DEFAULT_APP_DIR, DEFAULT_WEB_ROOT_DIR)
 
 
