@@ -1,7 +1,7 @@
 # HFGCSpy/setup.py
 # Python-based installer for HFGCSpy application.
 # This script handles all installation, configuration, and service management.
-# Version: 1.2.15 # Version bump for this critical fix attempt
+# Version: 1.2.16 # Version bump for this critical fix attempt
 
 import os
 import sys
@@ -12,7 +12,7 @@ import re
 import argparse
 
 # --- Script Version ---
-__version__ = "1.2.15" # Updated version
+__version__ = "1.2.16" # Updated version
 
 # --- Configuration Constants (Defined at module top-level for absolute clarity and immediate availability) ---
 HFGCSPY_REPO = "https://github.com/sworrl/HFGCSpy.git" # IMPORTANT: Ensure this is correct!
@@ -36,7 +36,7 @@ HFGCSPY_RECORDINGS_PATH = None
 HFGCSPY_CONFIG_JSON_PATH = None
 
 
-# --- Helper Functions (Definitions moved to top) ---
+# --- Helper Functions (Definitions moved to top to ensure availability) ---
 
 def log_info(message):
     print(f"\n\033[0;32mINFO: {message}\033[0m") # Green text for info
@@ -79,7 +79,7 @@ def check_root():
     if os.geteuid() != 0:
         log_error("This script must be run with sudo. Please run: sudo python3 setup.py --install")
 
-# --- Path Management Functions (Definitions moved to top) ---
+# --- Path Management Functions (Definitions moved to top to ensure availability) ---
 
 def _update_global_paths(app_dir_val, web_root_dir_val):
     """
@@ -139,7 +139,7 @@ def _load_paths_from_config():
         _update_global_paths(APP_DIR_DEFAULT, WEB_ROOT_DIR_DEFAULT) # Ensure paths are set even if config not found
         return False
 
-# --- Installation Steps (Definitions moved to top) ---
+# --- Installation Steps (Definitions moved to top to ensure availability) ---
 
 def prompt_for_paths():
     log_info("Determining HFGCSpy installation paths:")
@@ -575,7 +575,7 @@ def main():
     # This guarantees all global path variables are set to a baseline
     # using the module-level constants APP_DIR_DEFAULT and WEB_ROOT_DIR_DEFAULT.
     # This call must happen before any conditional logic that might use these globals
-    _set_global_paths_runtime(APP_DIR_DEFAULT, WEB_ROOT_DIR_DEFAULT) 
+    _update_global_paths(APP_DIR_DEFAULT, WEB_ROOT_DIR_DEFAULT) 
 
     # If not performing a fresh install, attempt to load paths from existing config.ini
     # This will override the defaults set above if a config is found.
