@@ -1,1272 +1,619 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>π-Backend Dashboard</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://unpkg.com/lucide@latest"></script>
-    <!-- Leaflet CSS for interactive maps -->
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.7.1/dist/leaflet.css"
-        xintegrity="sha512-xod9W+NpiX/fQx8I3p0zR7mF+D+L+F+0+S+G+A+B+C+D+E+F+G+H+I+J+K+L+M+N+O+P+Q+R+S+T+U+V+W+X+Y+Z"
-        crossorigin=""/>
-    <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
-        :root {
-            --bg-color: #030712; --sidebar-bg: #111827; --card-bg: #1f2937;
-            --border-color: #374151; --text-primary: #f9fafb; --text-secondary: #9ca3af;
-            --accent-color: #22d3ee; --accent-color-hover: #06b6d4;
-            --error-color: #ef4444; --error-color-light: #fca5a5; --success-color: #22c55e;
-            --info-color: #3b82f6; --warning-color: #f59e0b;
-        }
-        body { font-family: 'Inter', sans-serif; background-color: var(--bg-color); color: var(--text-primary); }
-        .sidebar { background-color: var(--sidebar-bg); border-right: 1px solid var(--border-color); }
-        .card { background-color: var(--card-bg); border-radius: 0.75rem; border: 1px solid var(--border-color); }
-        .tab-button.active { color: var(--accent-color); border-bottom-color: var(--accent-color); font-weight: 600; }
-        .tab-content { display: none; }
-        .tab-content.active { display: block; }
-        .api-btn {
-            background-color: var(--accent-color); color: black; font-weight: 600;
-            display: inline-flex; align-items: center; justify-content: center; gap: 0.5rem; padding: 0.5rem 1rem; border-radius: 0.5rem;
-            transition: all 0.2s ease-in-out; white-space: nowrap;
-        }
-        .api-btn:hover { background-color: var(--accent-color-hover); }
-        .api-btn.secondary { background-color: #374151; color: var(--text-primary); }
-        .api-btn.secondary:hover { background-color: #4b5563; }
-        .response-box {
-            background-color: #0c121d; border: 1px solid var(--border-color); border-radius: 0.5rem;
-            padding: 1rem; margin-top: 1rem; max-height: 400px; overflow-y: auto;
-            font-family: 'Fira Code', 'Courier New', monospace; font-size: 0.75rem;
-            white-space: pre-wrap; word-break: break-all;
-        }
-        input, select, textarea {
-             background-color: #1f2937; border: 1px solid var(--border-color); color: var(--text-primary);
-             border-radius: 0.5rem; padding: 0.5rem 0.75rem; font-size: 0.875rem;
-        }
-        input:focus, select:focus, textarea:focus { outline: none; border-color: var(--accent-color); box-shadow: 0 0 0 1px var(--accent-color); }
-        .grid-item-label { color: var(--text-secondary); font-size: 0.875rem; }
-        .grid-item-value { color: var(--text-primary); font-size: 1rem; font-weight: 500; }
-        .weather-card-icon { width: 48px; height: 48px; margin: 0 auto; }
+# HFGCSpy/setup.py
+# Python-based installer for HFGCSpy application.
+# This script handles all installation, configuration, and service management.
+# Version: 1.2.15 # Version bump for this critical fix attempt
 
-        /* Message Display Styles */
-        #global-message-container {
-            position: fixed; top: 1rem; right: 1rem; z-index: 10000;
-            display: flex; flex-direction: column; gap: 0.5rem;
-            max-width: 300px;
-        }
-        .message-toast {
-            padding: 0.75rem 1rem; border-radius: 0.5rem;
-            font-size: 0.875rem; font-weight: 500;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-            transition: opacity 0.3s ease-out, transform 0.3s ease-out;
-            opacity: 0; transform: translateY(-10px);
-        }
-        .message-toast.show { opacity: 1; transform: translateY(0); }
-        .message-toast.error { background-color: var(--error-color); color: white; }
-        .message-toast.success { background-color: var(--success-color); color: white; }
-        .message-toast.info { background-color: var(--info-color); color: white; }
-        .message-toast.warning { background-color: var(--warning-color); color: white; }
+import os
+import sys
+import subprocess
+import configparser
+import shutil
+import re
+import argparse
 
-        #initial-admin-setup {
-            position: fixed; top: 50%; left: 50%;
-            transform: translate(-50%, -50%); z-index: 1000;
-            width: min(90vw, 500px); background-color: var(--card-bg);
-            border: 1px solid var(--border-color); border-radius: 0.75rem;
-            padding: 1.5rem; box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
-        }
-        /* Status colors for file info table */
-        .status-ok { color: var(--success-color); }
-        .status-outdated { color: var(--warning-color); }
-        .status-missing { color: var(--error-color); }
-        .status-unknown { color: var(--text-secondary); } /* Added for unknown status */
+# --- Script Version ---
+__version__ = "1.2.15" # Updated version
 
-        /* Leaflet map specific styles */
-        #mapid {
-            height: 100%; /* Ensure map takes full height of its container */
-            width: 100%;
-            border-radius: 0.5rem;
-        }
-    </style>
-</head>
-<body class="font-sans antialiased">
+# --- Configuration Constants (Defined at module top-level for absolute clarity and immediate availability) ---
+HFGCSPY_REPO = "https://github.com/sworrl/HFGCSpy.git" # IMPORTANT: Ensure this is correct!
+HFGCSPY_SERVICE_NAME = "hfgcspy.service" # Service name is constant
 
-    <div id="global-message-container"></div>
+# Default base installation directories (THESE ARE THE TRUE CONSTANTS, always available)
+APP_DIR_DEFAULT = "/opt/hfgcspy"
+WEB_ROOT_DIR_DEFAULT = "/var/www/html/hfgcspy"
 
-    <div class="flex flex-col lg:flex-row h-screen w-full">
-        <!-- Sidebar -->
-        <aside class="sidebar w-full lg:w-80 flex-shrink-0 p-6 flex flex-col justify-between">
-            <div>
-                <div class="flex items-center justify-between lg:justify-start gap-3 mb-6">
-                    <i data-lucide="raspberry-pi" class="w-10 h-10 text-pink-500"></i>
-                    <div>
-                        <h1 class="text-xl font-bold text-white">π-Backend</h1>
-                        <p class="text-xs text-gray-400">Version: <span id="api-version-text">...</span></p>
-                    </div>
-                </div>
+# --- Global Path Variables (Initialized to None, will be set by _set_global_paths_runtime) ---
+# These are the variables that will hold the *actual* paths during script execution.
+# They are declared here, and their concrete values (derived from defaults or user input)
+# will be assigned ONLY within the _set_global_paths_runtime function.
+HFGCSpy_APP_DIR = None 
+HFGCSpy_VENV_DIR = None
+HFGCSpy_CONFIG_FILE = None
 
-                <div class="card p-4 space-y-4">
-                    <h2 class="text-md font-semibold text-gray-300 flex items-center gap-2"><i data-lucide="gauge-circle" class="w-5 h-5 text-cyan-400"></i>System Status</h2>
-                    <div class="grid grid-cols-2 gap-x-4 gap-y-3 text-sm">
-                        <div class="sidebar-metric"><div class="text-gray-400">CPU</div><div id="cpu-usage-val" class="font-mono font-bold text-lg">...</div></div>
-                        <div class="sidebar-metric"><div class="text-gray-400">Temp</div><div id="cpu-temp-val" class="font-mono font-bold text-lg">...</div></div>
-                        <div class="sidebar-metric"><div class="text-gray-400">Memory</div><div id="memory-usage-val" class="font-mono font-bold text-lg">...</div></div>
-                        <div class="sidebar-metric"><div class="text-gray-400">Disk</div><div id="disk-usage-val" class="font-mono font-bold text-lg">...</div></div>
-                        <div class="sidebar-metric col-span-2"><div class="text-gray-400">Time Sync</div><div id="time-offset" class="font-mono font-bold text-lg">...</div></div>
-                        <div class="sidebar-metric"><div class="text-gray-400">Battery</div><div id="sidebar-battery-percent" class="font-mono font-bold text-lg">...</div></div>
-                        <div class="sidebar-metric"><div class="text-gray-400">Time Est.</div><div id="sidebar-battery-time" class="font-mono font-bold text-lg">...</div></div>
-                    </div>
-                </div>
-
-                <nav class="mt-6 space-y-4">
-                    <h2 class="text-sm font-semibold text-gray-500 uppercase tracking-wider">Controls</h2>
-                    <div class="space-y-2">
-                        <div class="flex items-center justify-between text-sm">
-                            <label for="poll-interval" class="text-gray-400">Refresh (s):</label>
-                            <input type="number" id="poll-interval" value="5" min="1" class="w-16">
-                        </div>
-                        <button id="toggle-polling-btn" class="api-btn secondary w-full text-sm">
-                            <span id="toggle-polling-icon-wrapper" class="inline-flex items-center justify-center w-4 h-4">
-                                <i data-lucide="play-circle"></i>
-                            </span>
-                            <span id="toggle-polling-text">Start Refresh</span>
-                        </button>
-                    </div>
-                </nav>
-            </div>
-            <div class="space-y-3 mt-8 lg:mt-0"><div id="api-status-badge" class="text-sm font-bold px-3 py-1 rounded-full inline-block">Checking...</div></div>
-        </aside>
-
-        <!-- Main Content -->
-        <main class="flex-1 p-4 sm:p-6 lg:p-8 overflow-y-auto">
-            <header class="mb-6">
-                <div id="tabs" class="flex items-center border-b border-gray-800 text-sm font-medium text-gray-400 flex-wrap">
-                    <button class="tab-button active px-4 py-2" data-tab="overview">Overview</button>
-                    <button class="tab-button px-4 py-2" data-tab="gps">GPS</button>
-                    <button class="tab-button px-4 py-2" data-tab="power">Power</button>
-                    <button class="tab-button px-4 py-2" data-tab="time">Time</button>
-                    <button class="tab-button px-4 py-2" data-tab="hardware">Hardware</button>
-                    <button class="tab-button px-4 py-2" data-tab="location">Location</button>
-                    <button class="tab-button px-4 py-2" data-tab="weather">Weather</button>
-                    <button class="tab-button px-4 py-2" data-tab="update">Update</button>
-                    <button class="tab-button px-4 py-2 hidden" data-tab="users" id="users-tab-button">Users</button>
-                    <button class="tab-button px-4 py-2" data-tab="admin">Keys & Admin</button>
-                </div>
-            </header>
-
-            <div class="max-w-7xl mx-auto">
-                <!-- Overview Tab -->
-                <div id="tab-overview" class="tab-content active space-y-6">
-                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                        <div class="card p-6">
-                            <h2 class="text-lg font-semibold flex items-center gap-2 mb-4"><i data-lucide="map-pin" class="w-5 h-5 text-cyan-400"></i>Location & GPS</h2>
-                            <div class="space-y-2 text-sm" id="overview-gps-content"></div>
-                        </div>
-                        <div class="card p-6">
-                            <h2 class="text-lg font-semibold flex items-center gap-2 mb-4"><i data-lucide="battery-charging" class="w-5 h-5 text-cyan-400"></i>Power Status</h2>
-                             <div class="space-y-2 text-sm" id="overview-power-content"></div>
-                        </div>
-                        <div class="card p-6">
-                            <h2 class="text-lg font-semibold flex items-center gap-2 mb-4"><i data-lucide="cpu" class="w-5 h-5 text-cyan-400"></i>System</h2>
-                            <div class="space-y-2 text-sm" id="overview-system-content"></div>
-                        </div>
-                    </div>
-                    <div class="card">
-                        <div class="p-4 flex justify-between items-center border-b border-gray-800">
-                            <h3 class="text-base font-semibold text-gray-400 uppercase tracking-wider">API Response Log</h3>
-                            <button id="clear-output-btn" class="text-xs bg-rose-600 hover:bg-rose-700 text-white font-bold py-1 px-3 rounded-md transition-colors">Clear</button>
-                        </div>
-                        <div class="p-4 h-64 overflow-y-auto"><pre id="api-output" class="text-xs whitespace-pre-wrap break-all"></pre></div>
-                    </div>
-                </div>
-
-                <!-- GPS Tab -->
-                <div id="tab-gps" class="tab-content">
-                    <div class="card p-4 h-[calc(100vh-12rem)] flex flex-col">
-                        <h2 class="text-lg font-semibold flex items-center gap-2 mb-4"><i data-lucide="satellite" class="w-5 h-5 text-cyan-400"></i>GPS Data</h2>
-                        <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 p-4 flex-shrink-0" id="gps-data-grid"></div>
-                        <div class="flex-grow bg-gray-800 rounded-lg overflow-hidden mt-4">
-                            <!-- Changed iframe to div for Leaflet map -->
-                            <div id="mapid" class="w-full h-full rounded-lg"></div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Power Tab -->
-                <div id="tab-power" class="tab-content">
-                     <div class="card p-6">
-                        <h2 class="text-lg font-semibold flex items-center gap-2 mb-4"><i data-lucide="zap" class="w-5 h-5 text-cyan-400"></i>UPS Power Details</h2>
-                        <div id="ups-data-container" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 text-center"></div>
-                    </div>
-                </div>
-
-                <!-- Time Tab -->
-                <div id="tab-time" class="tab-content">
-                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                        <div class="card p-6">
-                            <h2 class="text-lg font-semibold flex items-center gap-2 mb-4"><i data-lucide="clock" class="w-5 h-5 text-cyan-400"></i>Time Synchronization Status</h2>
-                            <div class="space-y-3 text-sm" id="time-sync-content"></div>
-                        </div>
-                        <div class="card p-6">
-                            <h2 class="text-lg font-semibold flex items-center gap-2 mb-4"><i data-lucide="activity" class="w-5 h-5 text-cyan-400"></i>Clock Performance</h2>
-                            <div class="space-y-4 text-sm" id="time-perf-content"></div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Hardware Tab -->
-                <div id="tab-hardware" class="tab-content space-y-6">
-                    <div class="card p-6">
-                        <h2 class="text-lg font-semibold flex items-center gap-2 mb-4"><i data-lucide="toy-brick" class="w-5 h-5 text-cyan-400"></i>Hardware Control Panel</h2>
-                        <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-                            <button class="api-btn secondary" onclick="window.globalApi.makeApiCall('/hardware/bluetooth-scan', 'POST', null, 'hardwareControlOutput')"><i data-lucide="bluetooth" class="w-4 h-4"></i>Scan Bluetooth</button>
-                            <button class="api-btn secondary" onclick="window.globalApi.makeApiCall('/hardware/lte/flight-mode', 'POST', { enable: true }, 'hardwareControlOutput')"><i data-lucide="plane" class="w-4 h-4"></i>Flight Mode ON</button>
-                            <button class="api-btn secondary" onclick="window.globalApi.makeApiCall('/hardware/lte/flight-mode', 'POST', { enable: false }, 'hardwareControlOutput')"><i data-lucide="plane-off" class="w-4 h-4"></i>Flight Mode OFF</button>
-                            <button class="api-btn secondary" onclick="window.globalApi.makeApiCall('/hardware/lte/network-info', 'GET', null, 'hardwareControlOutput')"><i data-lucide="signal" class="w-4 h-4"></i>LTE Network Info</button>
-                        </div>
-                        <div id="hardwareControlOutput" class="response-box hidden"></div>
-                    </div>
-
-                    <div class="card p-6">
-                        <h2 class="text-lg font-semibold flex items-center gap-2 mb-4"><i data-lucide="thermometer-sun" class="w-5 h-5 text-cyan-400"></i>Sense HAT Sensors</h2>
-                        <div id="sensehat-data-container" class="grid grid-cols-2 sm:grid-cols-3 gap-4 text-sm"></div>
-                    </div>
-                </div>
-
-                <!-- Location Services Tab -->
-                <div id="tab-location" class="tab-content">
-                     <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                        <div class="card p-6">
-                            <h2 class="text-lg font-semibold flex items-center gap-2 mb-4"><i data-lucide="search" class="w-5 h-5 text-cyan-400"></i>Geocoding (Name to Coords)</h2>
-                            <div class="flex gap-2">
-                                <input type="text" id="geocode-input" class="w-full" placeholder="e.g., London, UK">
-                                <button class="api-btn" onclick="window.globalApi.geocodeLocation()">Find</button>
-                            </div>
-                            <div id="geocode-output" class="response-box hidden"></div>
-                        </div>
-                         <div class="card p-6">
-                            <h2 class="text-lg font-semibold flex items-center gap-2 mb-4"><i data-lucide="map" class="w-5 h-5 text-cyan-400"></i>Reverse Geocoding</h2>
-                            <div class="flex gap-2">
-                                <input type="text" id="reverse-geocode-lat" class="w-full" placeholder="Latitude (from GPS)">
-                                <input type="text" id="reverse-geocode-lon" class="w-full" placeholder="Longitude (from GPS)">
-                                <button class="api-btn" onclick="window.globalApi.reverseGeocodeLocation()">Find</button>
-                            </div>
-                            <div id="reverse-geocode-output" class="response-box hidden"></div>
-                        </div>
-                    </div>
-                     <div class="card p-6 mt-6">
-                        <h2 class="text-lg font-semibold flex items-center gap-2 mb-4"><i data-lucide="compass" class="w-5 h-5 text-cyan-400"></i>Community POIs</h2>
-                        <div class="flex flex-col sm:flex-row gap-2 mb-3">
-                            <input type="text" id="community-types-input" class="w-full" placeholder="e.g., police,hospital (optional types)">
-                            <button class="api-btn" onclick="window.globalApi.getNearbyPois()">Find Nearby</button>
-                        </div>
-                        <p class="text-xs text-gray-500 mb-4">Uses current GPS location. Enter optional comma-separated place types.</p>
-                        <div id="community-output" class="response-box hidden"></div>
-                    </div>
-                </div>
-
-                <!-- Weather Services Tab -->
-                <div id="tab-weather" class="tab-content">
-                    <div class="card p-6">
-                        <h2 class="text-lg font-semibold flex items-center gap-2 mb-4"><i data-lucide="cloud-sun" class="w-5 h-5 text-cyan-400"></i>External Weather Services</h2>
-                        <div class="flex flex-col sm:flex-row gap-2"><input type="text" id="weather-location-input" class="w-full" placeholder="Enter a city or leave blank for GPS"><button class="api-btn" onclick="window.globalApi.fetchWeather()">Fetch Weather</button></div>
-                        <p class="text-xs text-gray-500 mt-2 mb-4">Note: Services may fail if their API keys are not in the database.</p>
-                        <div id="weather-output-container" class="mt-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4"></div>
-                    </div>
-                </div>
-
-                <!-- Update Tab -->
-                <div id="tab-update" class="tab-content space-y-6">
-                    <div class="card p-6">
-                        <h2 class="text-lg font-semibold flex items-center gap-2 mb-4"><i data-lucide="folder-git-2" class="w-5 h-5 text-cyan-400"></i>System File Status</h2>
-                        <p class="text-sm text-gray-500 mb-4">File status is checked automatically when this tab is opened.</p>
-                        <div class="response-box min-h-[200px] text-gray-300 overflow-x-auto">
-                           <table class="w-full text-left text-xs">
-                                <thead class="text-gray-400 uppercase">
-                                    <tr>
-                                        <th class="p-2">File</th>
-                                        <th class="p-2">Version</th>
-                                        <th class="p-2">Status</th>
-                                    </tr>
-                                </thead>
-                                <tbody id="file-info-table-body">
-                                    <tr><td colspan="3" class="p-4 text-center">Click tab to load file info.</td></tr>
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
-
-                    <!-- New System Update Section -->
-                    <div class="card p-6">
-                        <h2 class="text-lg font-semibold flex items-center gap-2 mb-4"><i data-lucide="git-pull-request" class="w-5 h-5 text-cyan-400"></i>System Update</h2>
-                        <p class="text-sm text-gray-500 mb-4">Click below to run a system update. This assumes the source files (e.g., from a recent <code>git pull</code>) are already on your Raspberry Pi. The API will restart after the update.</p>
-                        <button id="trigger-system-update-btn" class="api-btn w-full"><i data-lucide="download" class="w-4 h-4"></i>Run System Update</button>
-                        <div id="systemUpdateOutput" class="response-box hidden"></div>
-                    </div>
-                </div>
+WEB_ROOT_DIR = None
+HFGCSPY_DATA_DIR = None
+HFGCSPY_RECORDINGS_PATH = None
+HFGCSPY_CONFIG_JSON_PATH = None
 
 
-                <!-- User Management Tab -->
-                <div id="tab-users" class="tab-content hidden">
-                   <div class="card p-6">
-                        <h2 class="text-lg font-semibold flex items-center gap-2 mb-4"><i data-lucide="users" class="w-5 h-5 text-cyan-400"></i>User Management</h2>
-                        <div class="space-y-6">
-                            <div>
-                                <h3 class="text-md font-semibold mb-3">All Users</h3>
-                                <div id="userListOutput" class="response-box min-h-[150px]"></div>
-                                <button class="api-btn secondary mt-3" onclick="window.globalApi.listAllUsers()">Refresh Users</button>
-                            </div>
-                            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                <div>
-                                    <h3 class="text-md font-semibold mb-3">Add New User</h3>
-                                    <div class="space-y-3">
-                                        <input type="text" id="addUsername" placeholder="Username" class="w-full">
-                                        <input type="password" id="addPassword" placeholder="Password" class="w-full">
-                                        <select id="addRole" class="w-full">
-                                            <option value="user">User</option>
-                                            <option value="admin">Admin</option>
-                                        </select>
-                                        <button class="api-btn w-full" onclick="window.globalApi.addNewUser()">Add User</button>
-                                    </div>
-                                    <div id="addUserOutput" class="response-box hidden"></div>
-                                </div>
-                                <div>
-                                    <h3 class="text-md font-semibold mb-3">Manage Existing User</h3>
-                                    <div class="space-y-3">
-                                        <input type="text" id="manageUsername" placeholder="Select a user from the list" class="w-full" readonly>
-                                        <input type="password" id="updatePassword" placeholder="New Password (optional)" class="w-full">
-                                        <select id="updateRole" class="w-full">
-                                            <option value="">Select New Role</option>
-                                            <option value="user">User</option>
-                                            <option value="admin">Admin</option>
-                                        </select>
-                                        <div class="flex gap-3">
-                                            <button class="api-btn w-full" onclick="window.globalApi.updateUser()">Update</button>
-                                            <button class="api-btn bg-red-600 hover:bg-red-700 w-full" onclick="window.globalApi.deleteUser()">Delete</button>
-                                        </div>
-                                    </div>
-                                    <div id="manageUserOutput" class="response-box hidden"></div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
+# --- Helper Functions (Definitions moved to top) ---
 
-                <!-- Admin Tab -->
-                <div id="tab-admin" class="tab-content">
-                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                        <div id="admin-login-panel" class="card p-6">
-                            <h2 class="text-lg font-semibold flex items-center gap-2 mb-4"><i data-lucide="log-in" class="w-5 h-5 text-cyan-400"></i>Admin Login</h2>
-                            <div id="admin-logged-out-view" class="space-y-3">
-                                <input type="text" id="adminLoginUsername" placeholder="Admin Username" class="w-full">
-                                <input type="password" id="adminLoginPassword" placeholder="Admin Password" class="w-full">
-                                <button class="api-btn w-full" id="adminLoginBtn">Login</button>
-                                <div id="adminLoginOutput" class="response-box hidden"></div>
-                            </div>
-                            <div id="admin-logged-in-view" class="hidden text-center">
-                                <p class="text-green-400">Logged in as <strong id="loggedInUsername"></strong></p>
-                                <button class="api-btn secondary w-full mt-4" id="adminLogoutBtn">Logout</button>
-                            </div>
-                        </div>
-                        <div id="key-manager-panel" class="card p-6 hidden">
-                            <h2 class="text-lg font-semibold flex items-center gap-2 mb-4"><i data-lucide="key-round" class="w-5 h-5 text-cyan-400"></i>API Key Manager</h2>
-                            <div id="apiKeysOutput" class="response-box min-h-[200px] mb-4"></div>
-                            <div class="space-y-4">
-                                <div>
-                                    <h3 class="font-semibold mb-2 text-gray-400">Store External/Update Key</h3>
-                                    <div class="space-y-2">
-                                        <select id="externalKeyNameSelect" class="w-full"></select>
-                                        <input type="text" id="externalKeyNameOther" class="w-full hidden mt-2" placeholder="Custom Key Name">
-                                        <textarea id="externalKeyValue" placeholder="Paste the key value here" class="w-full h-24" style="resize:none;"></textarea>
-                                        <button class="api-btn w-full" onclick="window.globalApi.storeOrUpdateKey()">Store / Update Key</button>
-                                    </div>
-                                </div>
-                                <div>
-                                    <h3 class="font-semibold mb-2 text-gray-400">Generate Internal Key</h3>
-                                    <div class="flex gap-2">
-                                        <input type="text" id="internalKeyName" placeholder="Name for new internal key" class="w-full"><button class="api-btn" onclick="window.globalApi.generateInternalKey()">Generate</button>
-                                    </div>
-                                </div>
-                            </div>
-                            <div id="keyManagerOutput" class="response-box hidden"></div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </main>
-    </div>
+def log_info(message):
+    print(f"\n\033[0;32mINFO: {message}\033[0m") # Green text for info
 
-    <!-- Initial Admin Setup Modal -->
-    <div id="initial-admin-setup" class="fixed inset-0 bg-gray-900 bg-opacity-75 flex items-center justify-center p-4 z-50 hidden">
-       <div class="bg-gray-800 card p-6 w-full max-w-md mx-auto">
-            <h2 class="text-xl font-bold text-white mb-4 flex items-center gap-2"><i data-lucide="shield-alert" class="w-6 h-6 text-yellow-400"></i>Action Required: Initial Setup</h2>
-            <p class="text-gray-300 mb-4">Your backend is running without a configured admin account. For security, please set up your primary admin account now.</p>
-            <div class="space-y-3">
-                <input type="password" id="initialPassword" placeholder="Enter new admin password" class="w-full">
-                <input type="password" id="confirmInitialPassword" placeholder="Confirm new admin password" class="w-full">
-            </div>
-            <button id="createInitialAdminBtn" class="api-btn w-full mt-6">Set Admin Password</button>
-            <div id="initialAdminOutput" class="response-box hidden"></div>
-        </div>
-    </div>
+def log_warn(message):
+    print(f"\n\033[0;33mWARNING: {message}\033[0m") # Yellow text for warnings
 
-    <script src="https://unpkg.com/leaflet@1.7.1/dist/leaflet.js"
-        xintegrity="sha512-XQoYMqMTK8LvdxXYG4yH42wG2Fj0w0+fQ+R+S+T+U+V+W+X+Y+Z"
-        crossorigin=""></script>
-    <script>
-    document.addEventListener('DOMContentLoaded', () => {
+def log_error(message, exit_code=1):
+    print(f"\n\033[0;31mERROR: {message}\033[0m") # Red text for errors
+    sys.exit(exit_code)
 
-        let pollingIntervalId = null;
-        let pollingActive = false;
-        let adminCredentials = { username: '', password: '' };
-        // IMPORTANT: Updated API_BASE_URL to point to your backend.
-        const API_BASE_URL = 'https://jengus.wifi.local.falcontechnix.com/api'; 
+def ask_yes_no(question):
+    while True:
+        response = input(f"{question} (y/n): ").lower().strip()
+        if response == 'y':
+            return True
+        elif response == 'n':
+            return False
+        else:
+            print("Please answer y or n.")
 
-        // Leaflet map variables
-        let mymap = null;
-        let gpsMarker = null;
-        let poiMarkers = null; // Feature group for POIs
+def run_command(command, check_return=True, capture_output=False, shell=False):
+    log_info(f"Executing: {' '.join(command) if isinstance(command, list) else command}")
+    try:
+        if isinstance(command, list) and (command[0] == sys.executable or command[0].endswith("/python3") or command[0].endswith("/pip")): 
+             result = subprocess.run(command, check=check_return, capture_output=capture_output, text=True)
+        else:
+            result = subprocess.run(command, check=check_return, capture_output=capture_output, text=True, shell=shell)
+        if capture_output:
+            return result.stdout.strip()
+        return result
+    except subprocess.CalledProcessError as e:
+        log_error(f"Command failed with exit code {e.returncode}.\nStderr: {e.stderr}\nStdout: {e.stdout}")
+    except FileNotFoundError:
+        log_error(f"Command not found: {command[0] if isinstance(command, list) else command.split(' ')[0]}")
+    except Exception as e:
+        log_error(f"An unexpected error occurred while running command: {e}")
 
-        const el = (id) => document.getElementById(id);
+def check_root():
+    if os.geteuid() != 0:
+        log_error("This script must be run with sudo. Please run: sudo python3 setup.py --install")
 
-        const showMessage = (type, text, duration = 4000) => {
-            const container = el('global-message-container');
-            const toast = document.createElement('div');
-            toast.className = `message-toast ${type}`;
-            toast.textContent = text;
-            container.appendChild(toast);
-            setTimeout(() => toast.classList.add('show'), 10);
-            setTimeout(() => {
-                toast.classList.remove('show');
-                toast.addEventListener('transitionend', () => toast.remove());
-            }, duration);
-        };
-        
-        // Modified makeApiCall to accept optional authCredentials
-        const makeApiCall = async (endpoint, method = 'GET', body = null, outputElementId = 'api-output', silent = false, authCredentialsOverride = null) => {
-            const outputEl = el(outputElementId);
-            const headers = { 'Content-Type': 'application/json' };
+# --- Path Management Functions (Definitions moved to top) ---
+
+def _update_global_paths(app_dir_val, web_root_dir_val):
+    """
+    Calculates and updates all global path variables based on the provided
+    app and web root directories.
+    This function should be called explicitly in main() after base paths are determined.
+    """
+    global HFGCSpy_APP_DIR, HFGCSpy_VENV_DIR, HFGCSpy_CONFIG_FILE
+    global WEB_ROOT_DIR, HFGCSpy_DATA_DIR, HFGCSpy_RECORDINGS_PATH, HFGCSpy_CONFIG_JSON_PATH
+
+    HFGCSpy_APP_DIR = app_dir_val
+    HFGCSpy_VENV_DIR = os.path.join(HFGCSpy_APP_DIR, "venv")
+    HFGCSpy_CONFIG_FILE = os.path.join(HFGCSpy_APP_DIR, "config.ini")
+    
+    WEB_ROOT_DIR = web_root_dir_val
+    HFGCSpy_DATA_DIR = os.path.join(WEB_ROOT_DIR, "hfgcspy_data")
+    HFGCSPY_RECORDINGS_PATH = os.path.join(HFGCSpy_DATA_DIR, "recordings")
+    HFGCSPY_CONFIG_JSON_PATH = os.path.join(HFGCSpy_DATA_DIR, "config.json")
+
+def _load_paths_from_config():
+    """Attempts to load installed paths from config.ini into global variables."""
+    # This function will call _update_global_paths_runtime once it has determined the base directories.
+    
+    config_read = configparser.ConfigParser()
+    installed_config_path = os.path.join(APP_DIR_DEFAULT, "config.ini") # Use constant APP_DIR_DEFAULT 
+
+    if os.path.exists(installed_config_path):
+        try:
+            config_read.read(installed_config_path)
+            # Database path is absolute, use it to deduce installed app_dir
+            app_dir_from_config = config_read.get('app', 'database_path', fallback='').replace('/data/hfgcspy.db', '').strip()
             
-            // Use provided authCredentialsOverride if available, otherwise use global adminCredentials
-            const currentCredentials = authCredentialsOverride || adminCredentials;
+            web_root_dir_from_config = WEB_ROOT_DIR_DEFAULT # Default fallback
+            if config_read.has_section('app_paths') and config_read.has_option('app_paths', 'status_file'):
+                full_status_path = config_read.get('app_paths', 'status_file')
+                # Regex to find WEB_ROOT_DIR from the full status_file path
+                match = re.search(r"^(.*)/hfgcspy_data/status\.json$", full_status_path)
+                if match:
+                    web_root_dir_from_config = match.group(1)
+                else:
+                    log_warn(f"Could not reliably deduce WEB_ROOT_DIR from status_file path in config.ini: {full_status_path}. Using default.")
+            else:
+                log_warn("app_paths section or status_file option missing in config.ini. Using default WEB_ROOT_DIR.")
 
-            if (currentCredentials.username && currentCredentials.password) {
-                headers['Authorization'] = 'Basic ' + btoa(currentCredentials.username + ':' + currentCredentials.password);
-            }
-            try {
-                const response = await fetch(API_BASE_URL + endpoint, { method, headers, body: body ? JSON.stringify(body) : null });
-                const responseText = await response.text();
-                let data = { error: `Invalid JSON response from server. Status: ${response.status}`, content: responseText };
-                try { data = JSON.parse(responseText); } catch (e) {}
+            # If app_dir_from_config is empty (e.g., config.ini is minimal or old), use default base
+            if not app_dir_from_config: app_dir_from_config = APP_DIR_DEFAULT
+
+            _update_global_paths(app_dir_from_config, web_root_dir_from_config)
+            log_info(f"Loaded install paths from config: App='{HFGCSpy_APP_DIR}', Web='{WEB_ROOT_DIR}'")
+            return True # Paths loaded successfully
+        except configparser.Error as e:
+            log_warn(f"Error reading config.ini for paths: {e}. Falling back to default paths.")
+            _update_global_paths(APP_DIR_DEFAULT, WEB_ROOT_DIR_DEFAULT) # Ensure paths are reset to defaults
+            return False
+    else:
+        log_warn("config.ini not found at default app directory. Using default paths.")
+        _update_global_paths(APP_DIR_DEFAULT, WEB_ROOT_DIR_DEFAULT) # Ensure paths are set even if config not found
+        return False
+
+# --- Installation Steps (Definitions moved to top) ---
+
+def prompt_for_paths():
+    log_info("Determining HFGCSpy installation paths:")
+
+    user_app_dir = input(f"Enter desired application installation directory (default: {APP_DIR_DEFAULT}): ").strip()
+    new_app_dir = user_app_dir if user_app_dir else APP_DIR_DEFAULT
+    
+    user_web_root_dir = input(f"Enter desired web UI hosting directory (default: {WEB_ROOT_DIR_DEFAULT}): ").strip()
+    new_web_root_dir = user_web_root_dir if user_web_root_dir else WEB_ROOT_DIR_DEFAULT
+    
+    # Update global paths AFTER user input
+    _update_global_paths(new_app_dir, new_web_root_dir)
+    
+    log_info(f"HFGCSpy application will be installed to: {HFGCSpy_APP_DIR}")
+    log_info(f"HFGCSpy web UI will be hosted at: {WEB_ROOT_DIR}")
+
+def install_system_and_python_deps():
+    # HFGCSpy_REPO is a module-level global constant, it's always available
+    log_info("Updating package lists and installing core system dependencies...")
+    run_command("apt update", shell=True)
+    run_command([
+        "apt", "install", "-y", 
+        "git", "python3", "python3-pip", "python3-venv", "build-essential", 
+        "libusb-1.0-0-dev", "libatlas-base-dev", "libopenblas-dev", "net-tools", "apache2",
+        "apt-transport-https", "ca-certificates", "curl", "gnupg", "lsb-release"
+    ])
+
+    log_info("Installing rtl-sdr tools...")
+    run_command(["apt", "install", "-y", "rtl-sdr"])
+    
+    log_info("Blacklisting conflicting DVB-T kernel modules...")
+    blacklist_conf = "/etc/modprobe.d/blacklist-rtl.conf"
+    with open(blacklist_conf, "w") as f:
+        f.write("blacklist dvb_usb_rtl28xxu\n")
+        f.write("blacklist rtl2832\n")
+        f.write("blacklist rtl2830\n")
+    run_command("depmod -a", shell=True)
+    run_command("update-initramfs -u", shell=True)
+    log_info("Conflicting kernel modules blacklisted. A reboot might be required for this to take effect.")
+
+    log_info(f"Cloning HFGCSpy application from GitHub to {HFGCSpy_APP_DIR}...")
+    if os.path.exists(HFGCSpy_APP_DIR):
+        log_warn(f"HFGCSpy directory {HFGCSpy_APP_DIR} already exists. Skipping clone. Use --uninstall first if you want a fresh install.")
+        return False # Indicate that it was an no fresh clone
+    else:
+        run_command(["git", "clone", HFGCSpy_REPO, HFGCSpy_APP_DIR]) # HFGCSpy_REPO is global constant
+    
+    log_info(f"Setting up Python virtual environment in {HFGCSpy_VENV_DIR} and installing dependencies...")
+    run_command([sys.executable, "-m", "venv", HFGCSpy_VENV_DIR]) 
+    pip_path = os.path.join(HFGCSpy_VENV_DIR, "bin", "pip")
+    requirements_path = os.path.join(HFGCSpy_APP_DIR, "requirements.txt")
+    run_command([pip_path, "install", "--upgrade", "pip"])
+    run_command([pip_path, "install", "-r", requirements_path])
+    return True # Indicate fresh clone
+
+def configure_hfgcspy_app():
+    log_info("Configuring HFGCSpy application settings...")
+    os.makedirs(os.path.dirname(HFGCSpy_DB_PATH), exist_ok=True)
+    os.makedirs(os.path.dirname(HFGCSpy_LOG_PATH), exist_ok=True)
+    
+    if not os.path.exists(HFGCSpy_CONFIG_FILE):
+        template_path = os.path.join(HFGCSpy_APP_DIR, "config.ini.template")
+        if os.path.exists(template_path):
+            log_info(f"Copying {os.path.basename(template_path)} to {os.path.basename(HFGCSpy_CONFIG_FILE)}.")
+            shutil.copyfile(template_path, HFGCSpy_CONFIG_FILE)
+        else:
+            log_error(f"config.ini and config.ini.template not found in {HFGCSpy_APP_DIR}. Cannot proceed with app configuration.")
+    else:
+        log_info("Existing config.ini found. Using existing configuration. Please verify it points to correct paths.")
+
+    # Update app_paths section in config.ini dynamically from current install paths
+    config_obj = configparser.ConfigParser()
+    config_obj.read(HFGCSpy_CONFIG_FILE)
+
+    if not config_obj.has_section('app_paths'):
+        config_obj.add_section('app_paths')
+    if not config_obj.has_section('app'):
+        config_obj.add_section('app')
+
+    config_obj.set('app', 'mode', 'standalone') # Ensure mode is standalone
+
+    # Store absolute paths in config.ini for the Python application
+    config_obj.set('app_paths', 'status_file', os.path.join(HFGCSpy_DATA_DIR, "status.json"))
+    config_obj.set('app_paths', 'messages_file', os.path.join(HFGCSpy_DATA_DIR, "messages.json"))
+    config_obj.set('app_paths', 'recordings_dir', HFGCSpy_RECORDINGS_PATH) # Recordings dir is directly served
+    config_obj.set('app_paths', 'config_json_file', os.path.join(HFGCSpy_DATA_DIR, "config.json"))
+
+    config_obj.set('app', 'database_path', os.path.join(HFGCSpy_APP_DIR, "data", "hfgcspy.db"))
+    if not config_obj.has_section('logging'):
+        config_obj.add_section('logging')
+    config_obj.set('logging', 'log_file', os.path.join(HFGCSpy_APP_DIR, "logs", "hfgcspy.log"))
+
+    with open(HFGCSpy_CONFIG_FILE, 'w') as f:
+        config_obj.write(f)
+    log_info(f"Paths in config.ini updated: {HFGCSpy_CONFIG_FILE}")
+
+    # Set up user/group ownership for app directory for proper file access by service
+    hfgcs_user = os.getenv("SUDO_USER") or "pi" # Get original user for ownership
+    log_info(f"Setting ownership of {HFGCSPY_APP_DIR} to {hfgcs_user}...")
+    run_command(["chown", "-R", f"{hfgcs_user}:{hfgcs_user}", HFGCSpy_APP_DIR])
+    run_command(["chmod", "-R", "u+rwX,go-w", HFGCSpy_APP_DIR]) # Restrict write from others
+
+    # Create web-accessible data directories and set permissions for Apache
+    log_info(f"Creating web-accessible data directories: {HFGCSpy_DATA_DIR} and {HFGCSpy_RECORDINGS_PATH}.")
+    os.makedirs(HFGCSpy_DATA_DIR, exist_ok=True)
+    os.makedirs(HFGCSpy_RECORDINGS_PATH, exist_ok=True)
+    run_command(["chown", "-R", "www-data:www-data", HFGCSpy_DATA_DIR])
+    run_command(["chmod", "-R", "775", HFGCSpy_DATA_DIR]) # Allow www-data write, others read/execute
+
+    log_info("HFGCSpy application configured.")
+
+def configure_apache2_webui():
+    log_info("Configuring Apache2 to serve HFGCSpy's web UI...")
+
+    log_info("Ensuring Apache2 is installed and enabled...")
+    try:
+        run_command(["systemctl", "is-active", "--quiet", "apache2"])
+    except subprocess.CalledProcessError:
+        log_info("Apache2 not running. Installing...")
+        run_command(["apt", "install", "-y", "apache2"])
+        run_command(["systemctl", "enable", "apache2"])
+        run_command(["systemctl", "start", "apache2"])
+    
+    log_info("Enabling Apache2 modules: headers, ssl, proxy, proxy_http...")
+    run_command("a2enmod headers ssl proxy proxy_http", shell=True, check_return=False)
+
+    log_info(f"Copying HFGCSpy web UI files to Apache web root: {WEB_ROOT_DIR}")
+    if os.path.exists(WEB_ROOT_DIR):
+        log_warn(f"Existing web UI directory {WEB_ROOT_DIR} found. Removing contents before copying new files.")
+        shutil.rmtree(WEB_ROOT_DIR) # Clean up previous install if any
+    os.makedirs(WEB_ROOT_DIR, exist_ok=True)
+    
+    # Copy contents of web_ui directory
+    src_web_ui_dir = os.path.join(HFGCSpy_APP_DIR, "web_ui")
+    for item in os.listdir(src_web_ui_dir):
+        s = os.path.join(src_web_ui_dir, item)
+        d = os.path.join(WEB_ROOT_DIR, item)
+        if os.path.isdir(s):
+            shutil.copytree(s, d, dirs_exist_ok=True)
+        else:
+            shutil.copy2(s, d)
+
+    # Ensure Apache has correct ownership/permissions
+    run_command(["chown", "-R", "www-data:www-data", WEB_ROOT_DIR])
+    run_command(["chmod", "-R", "755", WEB_ROOT_DIR])
+
+    server_ip = run_command(["hostname", "-I"], capture_output=True).split()[0]
+    user_server_name = input(f"Enter the domain name or IP address to access HFGCSpy web UI (default: {server_ip}): ").strip()
+    server_name = user_server_name if user_server_name else server_ip
+    log_info(f"HFGCSpy web UI will be accessible via: {server_name}")
+
+    apache_conf_path = "/etc/apache2/sites-available/hfgcspy.conf" # Renamed from hfgcspy-webui.conf for simplicity
+    
+    ssl_cert_path = ""
+    ssl_key_path = ""
+    use_ssl = False
+    ssl_domain = ""
+
+    letsencrypt_base_dir = "/etc/letsencrypt/live"
+    le_domains = []
+    if os.path.exists(letsencrypt_base_dir):
+        try:
+            result = run_command(["find", letsencrypt_base_dir, "-maxdepth", "1", "-mindepth", "1", "-type", "d", "-printf", "%P\n"], capture_output=True)
+            le_domains = [d for d in result.splitlines() if d and d != 'README']
+        except Exception as e:
+            log_warn(f"Could not list Let's Encrypt domains: {e}. Proceeding without SSL auto-config.")
+            le_domains = []
+        
+        if le_domains:
+            log_info(f"Detected Let's Encrypt certificates for domains: {', '.join(le_domains)}")
+            if ask_yes_no("Do you want to configure HFGCSpy web UI to use HTTPS with one of these certificates?"):
+                use_ssl = True
+                print("Available domains with certificates:")
+                for i, domain in enumerate(le_domains):
+                    print(f"{i+1}) {domain}")
                 
-                if (outputEl && !silent) {
-                    const logEntry = document.createElement('div');
-                    const color = response.ok ? 'text-green-400' : 'text-red-400';
-                    logEntry.innerHTML = `<span class="text-gray-500">${new Date().toLocaleTimeString()}</span> ${method} ${endpoint} -> <span class="${color}">${response.status}</span><br><span class="pl-4">${JSON.stringify(data, null, 2)}</span>`;
-                    outputEl.prepend(logEntry);
-                    if(outputElementId !== 'api-output') outputEl.classList.remove('hidden');
-                }
-                
-                if (!response.ok) {
-                    if (!silent) showMessage('error', data.error || `HTTP Error ${response.status}`);
-                    return { ...data, error: data.error || `HTTP Error ${response.status}` };
-                }
-                return data;
-            } catch (error) {
-                if (outputEl && !silent) {
-                    const logEntry = document.createElement('div');
-                    logEntry.innerHTML = `<span class="text-gray-500">${new Date().toLocaleTimeString()}</span> ${method} ${endpoint} -> <span class="text-red-400">Network Error</span><br><span class="pl-4">${error.message}</span>`;
-                    outputEl.prepend(logEntry);
-                }
-                if (!silent) showMessage('error', `Network Error: ${error.message}`);
-                return { error: `Network Error: ${error.message}` };
-            }
-        };
+                while True:
+                    try:
+                        choice = int(input("Enter the number of the domain to use: "))
+                        if 1 <= choice <= len(le_domains):
+                            ssl_domain = le_domains[choice - 1]
+                            ssl_cert_path = os.path.join(letsencrypt_base_dir, ssl_domain, "fullchain.pem")
+                            ssl_key_path = os.path.join(letsencrypt_base_dir, ssl_domain, "privkey.pem")
+                            break
+                        else:
+                            print("Invalid number. Please try again.")
+                    except ValueError:
+                        print("Invalid input. Please enter a number.")
+            else:
+                log_info("Skipping HTTPS configuration via Let's Encrypt.")
+        else:
+            log_info("No Let's Encrypt certificates found. HTTPS will not be automatically configured.")
+    else:
+        log_info(f"Let's Encrypt directory {letsencrypt_base_dir} not found. HTTPS will not be automatically configured.")
+
+
+    # Generate Apache config content
+    apache_conf_content = f"""
+<VirtualHost *:80>
+    ServerName {server_name}
+    DocumentRoot {WEB_ROOT_DIR}
+
+    <Directory {WEB_ROOT_DIR}>
+        Options Indexes FollowSymLinks
+        AllowOverride None
+        Require all granted
+    </Directory>
+
+    Alias /hfgcspy_data "{HFGCSpy_DATA_DIR}"
+    <Directory "{HFGCSpy_DATA_DIR}">
+        Options Indexes FollowSymLinks
+        AllowOverride None
+        Require all granted
+    </Directory>
+
+    ErrorLog ${{APACHE_LOG_DIR}}/hfgcspy_webui_error.log
+    CustomLog ${{APACHE_LOG_DIR}}/hfgcspy_webui_access.log combined
+</VirtualHost>
+"""
+    if use_ssl and os.path.exists(ssl_cert_path) and os.path.exists(ssl_key_path):
+        apache_conf_content += f"""
+<VirtualHost *:443>
+    ServerName {server_name}
+    DocumentRoot {WEB_ROOT_DIR}
+
+    <Directory {WEB_ROOT_DIR}>
+        Options Indexes FollowSymLinks
+        AllowOverride None
+        Require all granted
+    </Directory>
+
+    Alias /hfgcspy_data "{HFGCSpy_DATA_DIR}"
+    <Directory "{HFGCSpy_DATA_DIR}">
+        Options Indexes FollowSymLinks
+        AllowOverride None
+        Require all granted
+    </Directory>
+
+    ErrorLog ${{APACHE_LOG_DIR}}/hfgcspy_webui_ssl_error.log
+    CustomLog ${{APACHE_LOG_DIR}}/hfgcspy_webui_ssl_access.log combined
+
+    SSLEngine on
+    SSLCertificateFile "{ssl_cert_path}"
+    SSLCertificateKeyFile "{ssl_key_path}"
+"""
+        # Add SSLCertificateChainFile if chain.pem exists and is not the fullchain (common setup)
+        chain_path = os.path.join(letsencrypt_base_dir, ssl_domain, "chain.pem")
+        if os.path.exists(chain_path) and ssl_cert_path != os.path.join(letsencrypt_base_dir, ssl_domain, "fullchain.pem"):
+             apache_conf_content += f"    SSLCertificateChainFile \"{chain_path}\"\n"
         
-        const updateTabData = async (tabName) => {
-             const dataFetchers = {
-                 'overview': updateOverviewData,
-                 'gps': updateGpsTab,
-                 'power': updatePowerTab,
-                 'time': updateTimeTab,
-                 'hardware': updateHardwareTab,
-                 'update': updateFileTab,
-                 'users': window.globalApi.listAllUsers, // Ensure user list refreshes when tab is active
-                 'location': updateLocationTab // Add this to trigger map invalidateSize
-             };
-             if (dataFetchers[tabName]) await dataFetchers[tabName]();
-        };
+        apache_conf_content += """
+    # HSTS (optional, highly recommended for security)
+    Header always set Strict-Transport-Security "max-age=63072000; includeSubDomains; preload"
+</VirtualHost>
+"""
+        log_info(f"Apache2 SSL configuration included for {ssl_domain}.")
+    else:
+        log_info("HTTPS will not be configured automatically. Web UI will be available via HTTP only.")
 
-        const updateAllData = async () => {
-            if (!pollingActive) return;
-            const activeTab = document.querySelector('.tab-button.active').dataset.tab;
-            await updateTabData(activeTab); // Update current tab
-            await updateSidebarData(); // Always update sidebar
-        };
+    with open(apache_conf_path, "w") as f:
+        f.write(apache_conf_content)
+
+    run_command(["a2dissite", "000-default.conf"], check_return=False)
+    run_command(["a2ensite", os.path.basename(apache_conf_path)])
+    
+    run_command(["systemctl", "restart", "apache2"])
+    log_info("Apache2 configured and restarted to serve HFGCSpy web UI.")
+    log_info(f"Access HFGCSpy at http://{server_name}/hfgcspy (and https://{server_name}/hfgcspy if SSL was configured).")
+
+
+def setup_systemd_service():
+    log_info("Setting up HFGCSpy as a systemd service...")
+    
+    # Get the user who invoked sudo
+    hfgcs_user = os.getenv("SUDO_USER")
+    if not hfgcs_user:
+        hfgcs_user = "pi" # Fallback to 'pi' if SUDO_USER is not set (e.g., direct root login)
+        log_warn(f"SUDO_USER environment variable not set. Defaulting HFGCSpy service user to '{hfgcs_user}'. Please confirm this is correct or manually adjust.")
+
+    service_file_path = f"/etc/systemd/system/{HFGCSPY_SERVICE_NAME}"
+    service_content = f"""
+[Unit]
+Description=HFGCSpy SDR Scanner and Parser
+After=network.target
+
+[Service]
+WorkingDirectory={HFGCSpy_APP_DIR}
+ExecStart={os.path.join(HFGCSpy_VENV_DIR, "bin", "python3")} {os.path.join(HFGCSpy_APP_DIR, "hfgcs.py")} --run
+StandardOutput=inherit
+StandardError=inherit
+Restart=always
+User={hfgcs_user}
+
+[Install]
+WantedBy=multi-user.target
+"""
+    with open(service_file_path, "w") as f:
+        f.write(service_content)
+    
+    run_command(["systemctl", "daemon-reload"])
+    
+    if ask_yes_no("Do you want HFGCSpy to start automatically at machine boot? (Recommended: Yes)"):
+        run_command(["systemctl", "enable", HFGCSpy_SERVICE_NAME])
+        log_info("HFGCSpy service enabled to start automatically at boot.")
+    else:
+        run_command(["systemctl", "disable", HFGCSpy_SERVICE_NAME])
+        log_info(f"HFGCSpy service will NOT start automatically at boot. You'll need to start it manually: sudo systemctl start {HFGCSPY_SERVICE_NAME}")
+
+    run_command(["systemctl", "start", HFGCSpy_SERVICE_NAME])
+    log_info("HFGCSpy service setup and started.")
+
+def update_hfgcspy_app_code():
+    log_info("Stopping HFGCSpy service for update...")
+    run_command(["systemctl", "stop", HFGCSpy_SERVICE_NAME], check_return=False)
+    
+    if not os.path.exists(HFGCSpy_APP_DIR):
+        log_error(f"HFGCSpy application directory {HFGCSpy_APP_DIR} not found. Please run --install first.")
+    
+    log_info(f"Pulling latest changes from HFGCSpy repository in {HFGCSpy_APP_DIR}...")
+    current_dir = os.getcwd() # Save current working directory
+    os.chdir(HFGCSpy_APP_DIR) # Change to app dir for git pull
+    run_command(["git", "pull"])
+    os.chdir(current_dir) # Change back
+    
+
+    log_info("Reinstalling Python dependencies (if any new ones exist)...")
+    pip_path = os.path.join(HFGCSpy_VENV_DIR, "bin", "pip")
+    requirements_path = os.path.join(HFGCSpy_APP_DIR, "requirements.txt")
+    run_command([pip_path, "install", "-r", requirements_path])
+
+    log_info(f"Re-copying web UI files to Apache web root: {WEB_ROOT_DIR}...")
+    if os.path.exists(WEB_ROOT_DIR):
+        shutil.rmtree(WEB_ROOT_DIR) # Clean up old files
+    os.makedirs(WEB_ROOT_DIR, exist_ok=True)
+    # Copy contents of web_ui directory
+    src_web_ui_dir = os.path.join(HFGCSpy_APP_DIR, "web_ui")
+    for item in os.listdir(src_web_ui_dir):
+        s = os.path.join(src_web_ui_dir, item)
+        d = os.path.join(WEB_ROOT_DIR, item)
+        if os.path.isdir(s):
+            shutil.copytree(s, d, dirs_exist_ok=True)
+        else:
+            shutil.copy2(s, d)
+
+    run_command(["chown", "-R", "www-data:www-data", WEB_ROOT_DIR])
+    run_command(["chmod", "-R", "755", WEB_ROOT_DIR])
+    
+    log_info(f"Restarting HFGCSpy service {HFGCSPY_SERVICE_NAME}...")
+    run_command(["systemctl", "start", HFGCSpy_SERVICE_NAME])
+    log_info("HFGCSpy updated and restarted.")
+    log_info("Remember to restart Apache2 if there were any issues or config changes: sudo systemctl restart apache2")
+
+def check_sdr():
+    log_info("Checking for RTL-SDR dongle presence on host system...")
+    try:
+        # Check if rtl_test is available
+        run_command(["which", "rtl_test"], check_return=True, capture_output=True)
+        log_info("rtl_test command found. Running test...")
+        # Execute rtl_test and capture output for 5 seconds
+        result = run_command(["timeout", "5s", "rtl_test", "-t", "-s", "1M", "-d", "0", "-r"], capture_output=True, text=True, check_return=False)
         
-        // --- Sidebar & Overview Updaters ---
-        const updateSidebarData = async () => {
-            const [systemData, timeData, powerData] = await Promise.all([
-                makeApiCall('/hardware/system-stats', 'GET', null, null, true),
-                makeApiCall('/hardware/time-sync', 'GET', null, null, true),
-                makeApiCall('/hardware/ups', 'GET', null, null, true) // Call the updated UPS API endpoint
-            ]);
-            if (systemData && !systemData.error) {
-                el('cpu-usage-val').textContent = `${systemData.cpu_usage_percent?.toFixed(1) || 'N/A'}%`;
-                el('cpu-temp-val').textContent = `${systemData.cpu_temperature_c?.toFixed(1) || 'N/A'}°C`;
-                el('memory-usage-val').textContent = `${systemData.memory_usage_percent?.toFixed(1) || 'N/A'}%`;
-                el('disk-usage-val').textContent = `${systemData.disk_usage?.percent || 'N/A'}%`;
-            }
-             if (timeData && !timeData.error) {
-                 el('time-offset').textContent = `${timeData.system_time_offset_s || 'N/A'} s`;
-             }
-            updateSidebarPower(powerData);
-        };
-        
-        const updateOverviewData = async () => {
-            const [gpsData, powerData, systemData] = await Promise.all([
-                makeApiCall('/hardware/gps/best', 'GET', null, null, true),
-                makeApiCall('/hardware/ups', 'GET', null, null, true), // Call updated endpoint
-                makeApiCall('/hardware/system-stats', 'GET', null, null, true)
-            ]);
-            
-            el('overview-gps-content').innerHTML = `
-                <div class="flex justify-between text-gray-400"><span>Fix:</span><span class="font-mono text-white">${gpsData.fix_type || 'N/A'}</span></div>
-                <div class="flex justify-between text-gray-400"><span>Coords:</span><span class="font-mono text-white">${(gpsData.latitude && gpsData.longitude) ? `${gpsData.latitude.toFixed(4)}, ${gpsData.longitude.toFixed(4)}` : 'N/A'}</span></div>
-                <div class="flex justify-between text-gray-400"><span>Altitude:</span><span class="font-mono text-white">${gpsData.altitude_m ? `${gpsData.altitude_m.toFixed(1)} m` : 'N/A'}</span></div>`;
-
-            let powerContent;
-            if (powerData && powerData.status === "ok") {
-                const statusColor = getPowerStatusColor(powerData.status_text); // Use status_text from daemon
-                powerContent = `<div class="flex justify-between text-gray-400"><span>Voltage:</span><span class="font-mono text-white">${powerData.battery_voltage_V?.toFixed(2) || 'N/A'} V</span></div><div class="flex justify-between text-gray-400"><span>Current:</span><span class="font-mono text-white">${powerData.current_mA?.toFixed(1) || 'N/A'} mA</span></div><div class="flex justify-between text-gray-400"><span>Status:</span><span class="font-mono font-bold ${statusColor}">${powerData.status_text || 'N/A'}</span></div>`;
-            } else { powerContent = `<div class="text-red-400">Failed to load power data.</div>`; }
-            el('overview-power-content').innerHTML = powerContent;
-
-            el('overview-system-content').innerHTML = `<div class="flex justify-between text-gray-400"><span>CPU Usage:</span><span class="font-mono text-white">${systemData.cpu_usage_percent?.toFixed(1) || 'N/A'}%</span></div><div class="flex justify-between text-gray-400"><span>Memory:</span><span class="font-mono text-white">${systemData.memory_usage_percent?.toFixed(1) || 'N/A'}%</span></div><div class="flex justify-between text-gray-400"><span>CPU Temp:</span><span class="font-mono text-white">${systemData.cpu_temperature_c?.toFixed(1) || 'N/A'}°C</span></div>`;
-        };
-
-        // --- Tab Specific Updaters ---
-        const updateGpsTab = async () => {
-            const gpsData = await makeApiCall('/hardware/gps/best', 'GET', null, null, true);
-            const grid = el('gps-data-grid');
-
-            // Initialize map if not already
-            if (!mymap) {
-                mymap = L.map('mapid').setView([0, 0], 2); // Default view
-                L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-                    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-                }).addTo(mymap);
-                poiMarkers = L.featureGroup().addTo(mymap); // Initialize POI layer
-            }
-            // Ensure map is visible and correctly sized
-            mymap.invalidateSize();
-
-            if (gpsData && !gpsData.error) {
-                grid.innerHTML = `
-                    <div class="col-span-2 md:col-span-3 lg:col-span-5"><div class="grid-item-label">Source</div><div class="grid-item-value">${gpsData.source || 'N/A'}</div></div>
-                    <div class="card p-4"><div class="grid-item-label">Fix Type</div><div class="grid-item-value">${gpsData.fix_type || 'N/A'}</div></div>
-                    <div class="card p-4"><div class="grid-item-label">Latitude</div><div class="grid-item-value">${gpsData.latitude?.toFixed(5) || 'N/A'}</div></div>
-                    <div class="card p-4"><div class="grid-item-label">Longitude</div><div class="grid-item-value">${gpsData.longitude?.toFixed(5) || 'N/A'}</div></div>
-                    <div class="card p-4"><div class="grid-item-label">Altitude</div><div class="grid-item-value">${gpsData.altitude_m ? `${gpsData.altitude_m.toFixed(1)} m` : 'N/A'}</div></div>
-                    <div class="card p-4"><div class="grid-item-label">Speed</div><div class="grid-item-value">${gpsData.speed_mps ? `${(gpsData.speed_mps * 3.6).toFixed(1)} km/h` : 'N/A'}</div></div>
-                    <div class="card p-4"><div class="grid-item-label">Track</div><div class="grid-item-value">${gpsData.track_deg?.toFixed(1) || 'N/A'}°</div></div>
-                    <div class="card p-4"><div class="grid-item-label">Climb Rate</div><div class="grid-item-value">${gpsData.climb_mps ? `${gpsData.climb_mps.toFixed(1)} m/s` : 'N/A'}</div></div>
-                    <div class="card p-4"><div class="grid-item-label">Time (UTC)</div><div class="grid-item-value">${gpsData.time_utc ? new Date(gpsData.time_utc).toUTCString() : 'N/A'}</div></div>
-                    <div class="card p-4"><div class="grid-item-label">Satellites Used</div><div class="grid-item-value">${gpsData.satellites_used || 'N/A'}</div></div>
-                    <div class="card p-4"><div class="grid-item-label">Satellites In View</div><div class="grid-item-value">${gpsData.satellites_in_view || 'N/A'}</div></div>
-                    <div class="card p-4"><div class="grid-item-label">H. Error (m)</div><div class="grid-item-value">${gpsData.error_horizontal_m?.toFixed(2) || 'N/A'}</div></div>
-                    <div class="card p-4"><div class="grid-item-label">V. Error (m)</div><div class="grid-item-value">${gpsData.error_vertical_m?.toFixed(2) || 'N/A'}</div></div>
-                `;
-                // Update map marker and view
-                if (gpsData.latitude && gpsData.longitude) {
-                    const latlng = [gpsData.latitude, gpsData.longitude];
-                    if (gpsMarker) {
-                        gpsMarker.setLatLng(latlng);
-                    } else {
-                        gpsMarker = L.marker(latlng).addTo(mymap)
-                            .bindPopup(`<b>Current GPS</b><br>Lat: ${gpsData.latitude.toFixed(4)}<br>Lon: ${gpsData.longitude.toFixed(4)}`).openPopup();
-                    }
-                    mymap.setView(latlng, 13); // Center map on GPS location
-                } else if (gpsMarker) {
-                    mymap.removeLayer(gpsMarker);
-                    gpsMarker = null;
-                }
-            } else {
-                grid.innerHTML = `<div class="col-span-full text-center text-red-400 py-8">Failed to get GPS data: ${gpsData.error || 'Unknown error'}.</div>`;
-                if (gpsMarker) { mymap.removeLayer(gpsMarker); gpsMarker = null; }
-            }
-        };
-
-        const updateLocationTab = async () => {
-            // This function is called when the Location tab is opened.
-            // It ensures the map is initialized and invalidates its size.
-            if (!mymap) {
-                mymap = L.map('mapid').setView([0, 0], 2); // Default view
-                L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-                    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-                }).addTo(mymap);
-                poiMarkers = L.featureGroup().addTo(mymap); // Initialize POI layer
-            }
-            mymap.invalidateSize();
-
-            // Optionally, fetch current GPS data to center the map if available
-            const gpsData = await makeApiCall('/hardware/gps/best', 'GET', null, null, true);
-            if (gpsData && gpsData.latitude && gpsData.longitude) {
-                mymap.setView([gpsData.latitude, gpsData.longitude], 13);
-            }
-            // Clear any old POI markers when switching to this tab, unless explicitly fetching new ones
-            if (poiMarkers) {
-                poiMarkers.clearLayers();
-            }
-        };
+        if "Found" in result.stdout:
+            log_info("RTL-SDR dongle detected and appears to be working.")
+        else:
+            log_warn("No RTL-SDR dongle detected or it's not working correctly.")
+            log_warn("Ensure your RTL-SDR is plugged in and the blacklisting of DVB-T modules has taken effect (may require reboot).")
+        log_info("Full rtl_test output:\n" + result.stdout + result.stderr)
+    except subprocess.CalledProcessError as e:
+        log_warn(f"rtl_test command failed: {e.stderr}. Please ensure rtl-sdr tools are properly installed.")
+    except FileNotFoundError:
+        log_warn("rtl_test not found. It should have been installed. Please ensure build-essential and rtl-sdr packages are installed.")
+    except Exception as e:
+        log_error(f"An unexpected error occurred during SDR check: {e}")
 
 
-        const updatePowerTab = async () => {
-            const powerData = await makeApiCall('/hardware/ups', 'GET', null, null, true);
-            const container = el('ups-data-container');
-            if (powerData && powerData.status === "ok") {
-                const statusColor = getPowerStatusColor(powerData.status_text);
-                container.innerHTML = `
-                    <div class="card p-4"><div class="grid-item-label">Status</div><div class="grid-item-value ${statusColor}">${powerData.status_text || 'N/A'}</div></div>
-                    <div class="card p-4"><div class="grid-item-label">Battery Voltage</div><div class="grid-item-value">${powerData.battery_voltage_V?.toFixed(2) || 'N/A'} V</div></div>
-                    <div class="card p-4"><div class="grid-item-label">Bus Voltage</div><div class="grid-item-value">${powerData.bus_voltage_V?.toFixed(2) || 'N/A'} V</div></div>
-                    <div class="card p-4"><div class="grid-item-label">Shunt Voltage</div><div class="grid-item-value">${powerData.shunt_voltage_mV?.toFixed(2) || 'N/A'} mV</div></div>
-                    <div class="card p-4"><div class="grid-item-label">Current</div><div class="grid-item-value">${powerData.current_mA?.toFixed(2) || 'N/A'} mA</div></div>
-                    <div class="card p-4"><div class="grid-item-label">Power</div><div class="grid-item-value">${powerData.power_W?.toFixed(2) || 'N/A'} mW</div></div>
-                    <div class="card p-4"><div class="grid-item-label">Remaining Capacity</div><div class="grid-item-value">${powerData.remaining_mah?.toFixed(0) || 'N/A'} mAh</div></div>
-                    <div class="card p-4"><div class="grid-item-label">Battery %</div><div class="grid-item-value">${powerData.battery_percentage?.toFixed(1) || 'N/A'}%</div></div>
-                    <div class="card p-4 col-span-full md:col-span-2 lg:col-span-2"><div class="grid-item-label">Last Full Charge</div><div class="grid-item-value">${powerData.last_full_charge ? new Date(powerData.last_full_charge).toLocaleString() : 'N/A'}</div></div>
-                    <div class="card p-4 col-span-full md:col-span-2 lg:col-span-2"><div class="grid-item-label">Last Update</div><div class="grid-item-value">${powerData.last_update ? new Date(powerData.last_update).toLocaleString() : 'N/A'}</div></div>
-                `;
-            } else {
-                container.innerHTML = `<div class="col-span-full text-red-400">Failed to load UPS data: ${powerData.error || 'Unknown error'}. Ensure ups_daemon is running.</div>`;
-            }
-        };
+def uninstall_hfgcspy():
+    log_warn(f"Stopping and disabling HFGCSpy service {HFGCSPY_SERVICE_NAME}...")
+    run_command(["systemctl", "stop", HFGCSpy_SERVICE_NAME], check_return=False)
+    run_command(["systemctl", "disable", HFGCSpy_SERVICE_NAME], check_return=False)
+    if os.path.exists(f"/etc/systemd/system/{HFGCSPY_SERVICE_NAME}"):
+        os.remove(f"/etc/systemd/system/{HFGCSPY_SERVICE_NAME}")
+    run_command("systemctl daemon-reload", shell=True)
+    
+    if os.path.exists(HFGCSpy_APP_DIR):
+        log_warn(f"Removing HFGCSpy application directory: {HFGCSpy_APP_DIR}...")
+        shutil.rmtree(HFGCSpy_APP_DIR)
+    else:
+        log_warn(f"HFGCSpy application directory {HFGCSpy_APP_DIR} not found. Skipping removal.")
 
-        const updateTimeTab = async () => {
-            const timeData = await makeApiCall('/hardware/time-sync', 'GET', null, null, true);
-            const syncContent = el('time-sync-content');
-            const perfContent = el('time-perf-content');
-            if (timeData && !timeData.error) {
-                syncContent.innerHTML = `
-                    <div class="flex justify-between text-gray-400"><span>Service Status:</span><span class="font-mono text-white">${timeData.service_status || 'N/A'}</span></div>
-                    <div class="flex justify-between text-gray-400"><span>Leap Status:</span><span class="font-mono text-white">${timeData.leap_status || 'N/A'}</span></div>
-                    <div class="flex justify-between text-gray-400"><span>Reference ID:</span><span class="font-mono text-white">${timeData.reference_id || 'N/A'}</span></div>
-                    <div class="flex justify-between text-gray-400"><span>Stratum:</span><span class="font-mono text-white">${timeData.stratum || 'N/A'}</span></div>
-                    <div class="flex justify-between text-gray-400"><span>Ref Time (UTC):</span><span class="font-mono text-white">${timeData.ref_time_utc || 'N/A'}</span></div>
-                `;
-                perfContent.innerHTML = `
-                    <div class="flex justify-between text-gray-400"><span>System Time Offset:</span><span class="font-mono text-white">${timeData.system_time_offset_s || 'N/A'} s</span></div>
-                    <div class="flex justify-between text-gray-400"><span>Last Update Ago:</span><span class="font-mono text-white">${timeData.last_update_ago_s || 'N/A'} s</span></div>
-                    <div class="flex justify-between text-gray-400"><span>RMS Offset:</span><span class="font-mono text-white">${timeData.rms_offset_s || 'N/A'} s</span></div>
-                    <div class="flex justify-between text-gray-400"><span>Frequency Skew:</span><span class="font-mono text-white">${timeData.frequency_skew_ppm || 'N/A'} ppm</span></div>
-                    <div class="card p-4"><div class="grid-item-label">Residual Freq</div><div class="grid-item-value">${timeData.residual_freq_ppm || 'N/A'} ppm</div></div>
-                    <div class="card p-4"><div class="grid-item-label">Root Delay</div><div class="grid-item-value">${timeData.root_delay_s || 'N/A'} s</div></div>
-                    <div class="card p-4"><div class="grid-item-label">Root Dispersion</div><div class="grid-item-value">${timeData.root_dispersion_s || 'N/A'} s</div></div>
-                    <div class="card p-4"><div class="grid-item-label">Update Interval</div><div class="grid-item-value">${timeData.update_interval_s || 'N/A'} s</div></div>
-                `;
-            } else {
-                syncContent.innerHTML = `<div class="text-red-400">Failed to load time sync data: ${timeData.error || 'Unknown error'}.</div>`;
-                perfContent.innerHTML = ``;
-            }
-        };
-        const updateHardwareTab = async () => {
-            const senseHatData = await makeApiCall('/hardware/sensehat/data', 'GET', null, null, true);
-            const senseHatContainer = el('sensehat-data-container');
-            if (senseHatData && !senseHatData.error) {
-                const sensors = senseHatData.sensors || {};
-                const orientation = sensors.orientation_degrees || {};
-                const accelerometer = sensors.accelerometer_raw || {};
-                senseHatContainer.innerHTML = `
-                    <div class="card p-4"><div class="grid-item-label">Raw Humidity Temp</div><div class="grid-item-value">${sensors.temperature_raw_humidity_c?.toFixed(2) || 'N/A'} °C</div></div>
-                    <div class="card p-4"><div class="grid-item-label">Raw Pressure Temp</div><div class="grid-item-value">${sensors.temperature_raw_pressure_c?.toFixed(2) || 'N/A'} °C</div></div>
-                    <div class="card p-4"><div class="grid-item-label">Corrected Temp</div><div class="grid-item-value">${sensors.temperature_corrected_c?.toFixed(2) || 'N/A'} °C</div></div>
-                    <div class="card p-4"><div class="grid-item-label">Humidity</div><div class="grid-item-value">${sensors.humidity_percent?.toFixed(2) || 'N/A'} %</div></div>
-                    <div class="card p-4"><div class="grid-item-label">Pressure</div><div class="grid-item-value">${sensors.pressure_hpa?.toFixed(2) || 'N/A'} hPa</div></div>
-                    <div class="card p-4"><div class="grid-item-label">Pitch</div><div class="grid-item-value">${orientation.pitch?.toFixed(2) || 'N/A'}°</div></div>
-                    <div class="card p-4"><div class="grid-item-label">Roll</div><div class="grid-item-value">${orientation.roll?.toFixed(2) || 'N/A'}°</div></div>
-                    <div class="card p-4"><div class="grid-item-label">Yaw</div><div class="grid-item-value">${orientation.yaw?.toFixed(2) || 'N/A'}°</div></div>
-                    <div class="card p-4"><div class="grid-item-label">Accel X</div><div class="grid-item-value">${accelerometer.x?.toFixed(2) || 'N/A'}</div></div>
-                    <div class="card p-4"><div class="grid-item-label">Accel Y</div><div class="grid-item-value">${accelerometer.y?.toFixed(2) || 'N/A'}</div></div>
-                    <div class="card p-4"><div class="grid-item-label">Accel Z</div><div class="grid-item-value">${accelerometer.z?.toFixed(2) || 'N/A'}</div></div>
-                `;
-            } else {
-                senseHatContainer.innerHTML = `<div class="col-span-full text-center text-red-400 py-4">Sense HAT data unavailable: ${senseHatData.error || 'Unknown error'}.</div>`;
-            }
-        };
-        const updateFileTab = async () => {
-            const fileInfo = await makeApiCall('/system/file-info', 'GET', null, null, true);
-            const tableBody = el('file-info-table-body');
-            tableBody.innerHTML = ''; // Clear existing rows
+    if os.path.exists(WEB_ROOT_DIR):
+        log_warn(f"Removing Apache2 web UI directory: {WEB_ROOT_DIR}...")
+        shutil.rmtree(WEB_ROOT_DIR)
+    else:
+        log_warn(f"Apache2 web UI directory {WEB_ROOT_DIR} not found. Skipping removal.")
 
-            if (fileInfo && Array.isArray(fileInfo)) {
-                fileInfo.forEach(file => {
-                    const row = document.createElement('tr');
-                    let displayStatus = '';
-                    let statusClass = 'status-unknown'; // Default to unknown
-
-                    if (!file.exists) {
-                        displayStatus = 'Missing';
-                        statusClass = 'status-missing';
-                    } else {
-                        if (file.status === 'OK') {
-                            displayStatus = 'OK';
-                            statusClass = 'status-ok';
-                        } else if (file.status === 'OUTDATED') {
-                            displayStatus = 'Outdated';
-                            statusClass = 'status-outdated';
-                        } else {
-                            displayStatus = 'Exists / Unknown'; // Fallback for unexpected status
-                            statusClass = 'status-unknown';
-                        }
-                    }
-                    
-                    row.innerHTML = `
-                        <td class="p-2">${file.name}</td>
-                        <td class="p-2">${file.version}</td>
-                        <td class="p-2"><span class="${statusClass}">${displayStatus}</span></td>
-                    `;
-                    tableBody.appendChild(row);
-                });
-            } else {
-                tableBody.innerHTML = `<tr><td colspan="3" class="p-4 text-center text-red-400">Failed to load file information.</td></tr>`;
-            }
-        };
-        
-        const getPowerStatusColor = (status_text) => {
-             if (status_text === 'CHARGING') return 'text-green-400';
-             if (status_text === 'DISCHARGING' || status_text === 'EMPTY') return 'text-yellow-400';
-             if (status_text === 'IDLE' || status_text === 'CHARGED') return 'text-cyan-400';
-             return 'text-gray-400';
-        }
-        
-        const updateSidebarPower = (data) => {
-            if (data && data.status === "ok") {
-                const pct = data.battery_percentage;
-                const current_ma = data.current_mA;
-                const remaining_mah = data.remaining_mah;
-
-                const formatTimeEstimate = (mah, current_ma) => {
-                    if (Math.abs(current_ma) < 10) return "N/A"; // Avoid division by zero or near-zero current
-                    const hours_raw = mah / Math.abs(current_ma);
-                    
-                    if (hours_raw * 3600 > 87600) return ">10y"; // More than 10 years, just show >10y
-                    
-                    const days = Math.floor(hours_raw / 24);
-                    const hrs = Math.floor(hours_raw % 24);
-                    const mins = Math.floor((hours_raw * 60) % 60);
-
-                    if (days > 0) return `${days}d ${hrs}h`;
-                    if (hrs > 0) return `${hrs}h ${mins}m`;
-                    return `${mins}m`;
-                };
-
-                el('sidebar-battery-percent').textContent = `${pct?.toFixed(1) || 'N/A'}%`;
-                el('sidebar-battery-time').textContent = formatTimeEstimate(remaining_mah, current_ma);
-            } else {
-                el('sidebar-battery-percent').textContent = 'N/A';
-                el('sidebar-battery-time').textContent = 'N/A';
-            }
-        };
-
-        // --- Admin & User Functions ---
-        // (Fully implemented versions of these functions would go here)
-        window.globalApi = window.globalApi || {}; // Ensure globalApi exists
-        window.globalApi.makeApiCall = makeApiCall; // Expose makeApiCall globally
-
-        window.globalApi.listAllUsers = async () => {
-            const users = await makeApiCall('/users', 'GET', null, null, true);
-            const userListOutput = el('userListOutput');
-            if (users && Array.isArray(users)) {
-                userListOutput.innerHTML = `<pre>${JSON.stringify(users, null, 2)}</pre>`;
-                userListOutput.classList.remove('hidden');
-            } else {
-                userListOutput.innerHTML = `<div class="text-red-400">Failed to load users: ${users.error || 'Unknown error'}.</div>`;
-                userListOutput.classList.remove('hidden');
-            }
-        };
-        window.globalApi.addNewUser = async () => {
-            const username = el('addUsername').value;
-            const password = el('addPassword').value;
-            const role = el('addRole').value;
-            if (!username || !password) {
-                showMessage('error', 'Username and password are required.');
-                return;
-            }
-            const result = await makeApiCall('/users', 'POST', { username, password, role }, 'addUserOutput');
-            if (result.message) { showMessage('success', result.message); }
-            window.globalApi.listAllUsers(); // Refresh list
-        };
-        window.globalApi.updateUser = async () => {
-            const username = el('manageUsername').value;
-            const newPassword = el('updatePassword').value;
-            const newRole = el('updateRole').value;
-            if (!username) { showMessage('error', 'Please select a user to manage.'); return; }
-            let body = {};
-            if (newPassword) body.password = newPassword;
-            if (newRole) body.role = newRole;
-            if (Object.keys(body).length === 0) { showMessage('warning', 'No changes to apply.'); return; }
-
-            const result = await makeApiCall(`/users/${username}`, 'PUT', body, 'manageUserOutput');
-            if (result.message) { showMessage('success', result.message); }
-            window.globalApi.listAllUsers(); // Refresh list
-        };
-        window.globalApi.deleteUser = async () => {
-            const username = el('manageUsername').value;
-            if (!username) { showMessage('error', 'Please select a user to delete.'); return; }
-            // Add a confirmation modal here instead of native alert/confirm
-            const confirmDelete = true; // Placeholder for custom modal logic
-            if (confirmDelete) {
-                const result = await makeApiCall(`/users/${username}`, 'DELETE', null, 'manageUserOutput');
-                if (result.message) { showMessage('success', result.message); el('manageUsername').value = ''; }
-                window.globalApi.listAllUsers(); // Refresh list
-            }
-        };
-
-        window.globalApi.geocodeLocation = async () => {
-            const locationQuery = el('geocode-input').value;
-            if (!locationQuery) { showMessage('warning', 'Please enter a location to geocode.'); return; }
-            const result = await makeApiCall(`/services/location-test?location=${encodeURIComponent(locationQuery)}`, 'GET', null, 'geocode-output');
-            if (result.latitude && result.longitude) {
-                showMessage('success', `Geocoded: ${result.address}`);
-                if (mymap) {
-                    mymap.setView([result.latitude, result.longitude], 13);
-                    L.marker([result.latitude, result.longitude]).addTo(mymap)
-                        .bindPopup(`<b>${result.address}</b><br>Lat: ${result.latitude.toFixed(4)}<br>Lon: ${result.longitude.toFixed(4)}`).openPopup();
-                }
-            }
-        };
-
-        window.globalApi.reverseGeocodeLocation = async () => {
-            const lat = el('reverse-geocode-lat').value;
-            const lon = el('reverse-geocode-lon').value;
-            if (!lat || !lon) { showMessage('warning', 'Please enter latitude and longitude.'); return; }
-            const result = await makeApiCall(`/services/location-test?lat=${encodeURIComponent(lat)}&lon=${encodeURIComponent(lon)}`, 'GET', null, 'reverse-geocode-output');
-            if (result.address) {
-                showMessage('success', `Reverse Geocoded: ${result.address}`);
-                if (mymap) {
-                    mymap.setView([parseFloat(lat), parseFloat(lon)], 13);
-                    L.marker([parseFloat(lat), parseFloat(lon)]).addTo(mymap)
-                        .bindPopup(`<b>${result.address}</b><br>Lat: ${parseFloat(lat).toFixed(4)}<br>Lon: ${parseFloat(lon).toFixed(4)}`).openPopup();
-                }
-            }
-        };
-
-        window.globalApi.getNearbyPois = async () => {
-            const types = el('community-types-input').value;
-            let endpoint = '/community/nearby';
-            if (types) {
-                endpoint += `?types=${encodeURIComponent(types)}`;
-            }
-            const result = await makeApiCall(endpoint, 'GET', null, 'community-output');
-            if (result.points_of_interest) {
-                showMessage('success', `Found ${Object.keys(result.points_of_interest).length} POI types.`);
-                if (mymap && poiMarkers) {
-                    poiMarkers.clearLayers(); // Clear previous POI markers
-                    let bounds = [];
-                    for (const type in result.points_of_interest) {
-                        result.points_of_interest[type].forEach(poi => {
-                            if (poi.latitude && poi.longitude) {
-                                const latlng = [poi.latitude, poi.longitude];
-                                L.marker(latlng)
-                                    .addTo(poiMarkers)
-                                    .bindPopup(`<b>${poi.name || 'POI'}</b><br>${type}<br>${poi.address || ''}`);
-                                bounds.push(latlng);
-                            }
-                        });
-                    }
-                    if (bounds.length > 0) {
-                        mymap.fitBounds(bounds); // Fit map to bounds of all POI markers
-                    }
-                }
-            }
-        };
-
-        window.globalApi.fetchWeather = async () => {
-            const location = el('weather-location-input').value;
-            let endpoint = '/services/weather-test';
-            if (location) {
-                endpoint += `?location=${encodeURIComponent(location)}`;
-            }
-            const result = await makeApiCall(endpoint, 'GET', null, null, true); // Suppress general output log
-            const container = el('weather-output-container');
-            container.innerHTML = ''; // Clear previous weather data
-
-            if (result && result.weather_data) {
-                let successCount = 0;
-                for (const serviceName in result.weather_data) {
-                    const serviceData = result.weather_data[serviceName];
-                    const card = document.createElement('div');
-                    card.className = 'card p-4 flex flex-col items-center text-center';
-                    
-                    if (serviceData.error) {
-                        card.innerHTML = `<h3 class="text-lg font-semibold text-gray-300 capitalize">${serviceName}</h3><p class="text-red-400 text-sm mt-2">Error: ${serviceData.error}</p>`;
-                        showMessage('error', `Weather fetch error for ${serviceName}: ${serviceData.error}`);
-                    } else if (serviceData.normalized_data && serviceData.normalized_data.current) {
-                        const current = serviceData.normalized_data.current;
-                        const iconUrl = current.icon_url || `https://openweathermap.org/img/wn/${current.icon || '01d'}@2x.png`;
-                        card.innerHTML = `
-                            <h3 class="text-lg font-semibold text-gray-300 capitalize">${serviceName}</h3>
-                            <img src="${iconUrl}" onerror="this.onerror=null;this.src='https://placehold.co/48x48/1f2937/f9fafb?text=N/A';" alt="Weather Icon" class="weather-card-icon">
-                            <p class="text-3xl font-bold text-white mt-2">${current.temperature_c?.toFixed(1) || 'N/A'}°C</p>
-                            <p class="text-sm text-gray-400">${current.description || 'N/A'}</p>
-                        `;
-                        successCount++;
-                    } else {
-                         card.innerHTML = `<h3 class="text-lg font-semibold text-gray-300 capitalize">${serviceName}</h3><p class="text-gray-500 text-sm mt-2">No current data.</p>`;
-                    }
-                    container.appendChild(card);
-                }
-                if (successCount > 0) {
-                    showMessage('success', `Weather data fetched successfully for ${successCount} service(s).`);
-                }
-            } else {
-                container.innerHTML = `<div class="col-span-full text-center text-red-400 py-8">Failed to fetch weather data: ${result.error || 'Unknown error'}.</div>`;
-                showMessage('error', `Failed to fetch any weather data: ${result.error || 'Unknown error'}`);
-            }
-        };
+    log_warn("Removing Apache2 configuration for HFGCSpy web UI (if it exists)...")
+    run_command(["a2dissite", "hfgcspy.conf"], check_return=False)
+    if os.path.exists("/etc/apache2/sites-available/hfgcspy.conf"):
+        os.remove("/etc/apache2/sites-available/hfgcspy.conf")
+    if os.path.exists("/etc/apache2/sites-enabled/hfgcspy.conf"):
+        os.remove("/etc/apache2/sites-enabled/hfgcspy.conf")
+    run_command(["systemctl", "restart", "apache2"], check_return=False)
+    
+    log_info("HFGCSpy uninstallation complete.")
+    log_info("You may want to manually remove the DVB-T blacklisting file: /etc/modprobe.d/blacklist-rtl.conf")
 
 
-        // --- Admin & Security Functions ---
-        const updateStatus = async () => {
-            const status = await makeApiCall('/status', 'GET', null, null, true);
-            const statusBadge = el('api-status-badge');
-            const apiVersionText = el('api-version-text');
-            if (status && status.status === 'ok') {
-                statusBadge.className = 'text-sm font-bold px-3 py-1 rounded-full inline-block bg-green-500 text-white';
-                statusBadge.textContent = 'API Online';
-                apiVersionText.textContent = status.version;
-                if (status.default_credentials_active) {
-                    el('initial-admin-setup').classList.remove('hidden');
-                }
-            } else {
-                statusBadge.className = 'text-sm font-bold px-3 py-1 rounded-full inline-block bg-red-500 text-white';
-                statusBadge.textContent = 'API Offline';
-                apiVersionText.textContent = 'Error';
-                showMessage('error', 'API is offline or unhealthy.', 0); // Permanent error message
-            }
-            updateAdminPanelState();
-        };
+# --- Main Script Logic ---
 
-        const checkInitialSetup = async () => {
-            const userCount = await makeApiCall('/setup/user_count', 'GET', null, null, true);
-            if (userCount && userCount.user_count === 0) {
-                el('initial-admin-setup').classList.remove('hidden');
-                showMessage('warning', 'Initial admin account not set up. Please create one.', 0);
-            } else {
-                el('initial-admin-setup').classList.add('hidden');
-            }
-        };
+def main():
+    # --- Path Initialization for main execution flow ---
+    # These global variables are initialized at the module level.
+    # For --install, prompt_for_paths() will update them.
+    # For other commands, _load_paths_from_config() will attempt to update them.
+    # This structure ensures they always have *some* value before being used.
+    global HFGCSpy_APP_DIR, HFGCSpy_VENV_DIR, HFGCSpy_CONFIG_FILE
+    global WEB_ROOT_DIR, HFGCSpy_DATA_DIR, HFGCSpy_RECORDINGS_PATH, HFGCSpy_CONFIG_JSON_PATH
 
-        const createInitialAdmin = async () => {
-            const password = el('initialPassword').value;
-            const confirmPassword = el('confirmInitialPassword').value;
-            if (password !== confirmPassword) {
-                showMessage('error', 'Passwords do not match.');
-                return;
-            }
-            if (password.length < 8) {
-                showMessage('error', 'Password must be at least 8 characters long.');
-                return;
-            }
-            const result = await makeApiCall('/setup/create_initial_admin', 'POST', { password: password }, 'initialAdminOutput');
-            if (result.message) {
-                showMessage('success', result.message);
-                el('initial-admin-setup').classList.add('hidden');
-                // Auto-login with the newly created admin user
-                adminCredentials.username = 'admin';
-                adminCredentials.password = password;
-                updateAdminPanelState();
-            }
-        };
-        
-        const loginAdmin = async () => {
-            const username = el('adminLoginUsername').value;
-            const password = el('adminLoginPassword').value;
-            // Temporarily set credentials for this call to test authentication
-            const tempAdminCredentials = { username, password };
-            
-            // Attempt to fetch a protected resource. A 401 indicates failure, 200 indicates success.
-            // Pass the temporary credentials explicitly to makeApiCall
-            const result = await makeApiCall('/database/stats', 'GET', null, 'adminLoginOutput', true, tempAdminCredentials);
-            
-            if (result.status === "ok") {
-                adminCredentials.username = username; // Persist credentials on success
-                adminCredentials.password = password;
-                showMessage('success', 'Admin login successful.');
-                updateAdminPanelState();
-                updateApiKeysList();
-                return true;
-            } else {
-                // Enhanced error reporting
-                console.error("Login verification failed. Full API response:", result);
-                let errorMessage = 'An unexpected error occurred during login verification.';
-                if (result.error) {
-                    errorMessage = `Login failed: ${result.error}`;
-                } else if (result.content) {
-                    // Try to parse content if it's a string and display a snippet
-                    try {
-                        const parsedContent = JSON.parse(result.content);
-                        errorMessage = `Login failed: ${JSON.stringify(parsedContent, null, 2)}`;
-                    } catch (e) {
-                        errorMessage = `Login failed: ${result.content.substring(0, 100)}${result.content.length > 100 ? '...' : ''}`;
-                    }
-                }
-                showMessage('error', errorMessage);
-                return false;
-            }
-        };
+    log_info(f"HFGCSpy Installer (Version: {__version__})")
 
-        const logoutAdmin = () => {
-            adminCredentials = { username: '', password: '' };
-            showMessage('info', 'Logged out from admin session.');
-            updateAdminPanelState();
-        };
+    parser = argparse.ArgumentParser(description=f"HFGCSpy Installer (Version: {__version__})")
+    parser.add_argument('--install', action='store_true', help="Install HFGCSpy application and configure services.")
+    parser.add_argument('--run', action='store_true', help="Run HFGCSpy main application directly (for debugging).")
+    parser.add_argument('--stop', action='store_true', help="Stop HFGCSpy service.")
+    parser.add_argument('--status', action='store_true', help="Check HFGCSpy and Apache2 service status.")
+    parser.add_argument('--uninstall', action='store_true', help="Uninstall HFGCSpy application and associated files.")
+    parser.add_argument('--update', action='store_true', help="Update HFGCSpy application code from Git and restart service.")
+    parser.add_argument('--check_sdr', action='store_true', help="Check for RTL-SDR dongle presence.")
+    
+    args = parser.parse_args()
 
-        const updateAdminPanelState = () => {
-            const loggedInView = el('admin-logged-in-view');
-            const loggedOutView = el('admin-logged-out-view');
-            const loggedInUsernameSpan = el('loggedInUsername');
-            const keyManagerPanel = el('key-manager-panel');
-            const usersTabButton = el('users-tab-button');
+    # Call _set_global_paths_runtime initially with defaults.
+    # This guarantees all global path variables are set to a baseline
+    # using the module-level constants APP_DIR_DEFAULT and WEB_ROOT_DIR_DEFAULT.
+    # This call must happen before any conditional logic that might use these globals
+    _set_global_paths_runtime(APP_DIR_DEFAULT, WEB_ROOT_DIR_DEFAULT) 
 
-            if (adminCredentials.username && adminCredentials.password) {
-                loggedInView.classList.remove('hidden');
-                loggedOutView.classList.add('hidden');
-                loggedInUsernameSpan.textContent = adminCredentials.username;
-                keyManagerPanel.classList.remove('hidden');
-                usersTabButton.classList.remove('hidden');
-            } else {
-                loggedInView.classList.add('hidden');
-                loggedOutView.classList.remove('hidden');
-                keyManagerPanel.classList.add('hidden');
-                usersTabButton.classList.add('hidden'); // Hide users tab if not admin
-                el('adminLoginUsername').value = '';
-                el('adminLoginPassword').value = '';
-            }
-        };
-
-        // Predefined list of common API keys for the dropdown
-        const COMMON_API_KEYS = [
-            "OpenWeatherMap",
-            "Google Maps",
-            "OpenCageData",
-            "Here Maps",
-            "Dark Sky",
-            "TomTom",
-            "Mapbox",
-            "Stripe",
-            "Twilio",
-            "SendGrid",
-            "AWS S3",
-            "Windy.com API",
-            "Accuweather",
-            "Azure Blob Storage",
-            "OpenAI",
-            "Gemini API"
-        ];
-
-        const updateApiKeysList = async () => {
-            const keys = await makeApiCall('/keys', 'GET', null, null, true);
-            const apiKeysOutput = el('apiKeysOutput');
-            const externalKeyNameSelect = el('externalKeyNameSelect');
-            
-            // Clear existing options, but keep the default ones
-            externalKeyNameSelect.innerHTML = '<option value="">-- Select or type key name --</option><option value="OTHER">-- Other (type below) --</option>';
-
-            const existingKeyNames = new Set();
-
-            // Add existing keys from backend first
-            if (keys && Array.isArray(keys)) {
-                apiKeysOutput.innerHTML = `<pre>${JSON.stringify(keys, null, 2)}</pre>`;
-                keys.forEach(key => {
-                    existingKeyNames.add(key.key_name);
-                    const option = document.createElement('option');
-                    option.value = key.key_name;
-                    option.textContent = key.key_name + (key.is_internal ? ' (Internal)' : '');  
-                    externalKeyNameSelect.appendChild(option);
-                });
-            } else {
-                apiKeysOutput.innerHTML = `<div class="text-red-400">Failed to load API keys: ${keys.error || 'Unknown error'}.</div>`;
-            }
-
-            // Add common API keys, avoiding duplicates
-            COMMON_API_KEYS.forEach(keyName => {
-                if (!existingKeyNames.has(keyName)) {
-                    const option = document.createElement('option');
-                    option.value = keyName;
-                    option.textContent = keyName;
-                    externalKeyNameSelect.appendChild(option);
-                }
-            });
-        };
-
-        const storeOrUpdateKey = async () => {
-            let keyName = el('externalKeyNameSelect').value;
-            if (keyName === 'OTHER') {
-                keyName = el('externalKeyNameOther').value;
-            }
-            const keyValue = el('externalKeyValue').value;
-
-            if (!keyName || !keyValue) {
-                showMessage('error', 'Key Name and Value are required.');
-                return;
-            }
-            const result = await makeApiCall('/keys', 'POST', { name: keyName, value: keyValue }, 'keyManagerOutput');
-            if (result.message) { showMessage('success', result.message); }
-            updateApiKeysList();
-            el('externalKeyValue').value = '';
-        };
-
-        const generateInternalKey = async () => {
-            const keyName = el('internalKeyName').value;
-            if (!keyName) {
-                showMessage('error', 'Name for the internal key is required.');
-                return;
-            }
-            const result = await makeApiCall('/keys', 'POST', { name: keyName }, 'keyManagerOutput');
-            if (result.message && result.api_key) {
-                showMessage('success', `Generated new key: ${result.api_key}`);
-                el('keyManagerOutput').innerHTML = `<p class="text-white">New Internal API Key for ${keyName}: <strong class="text-green-400">${result.api_key}</strong></p><p class="text-yellow-400">Copy this now, it won't be shown again!</p>`;
-                el('keyManagerOutput').classList.remove('hidden');
-            } else if (result.error) {
-                showMessage('error', result.error);
-            }
-            updateApiKeysList();
-            el('internalKeyName').value = '';
-        };
-        
-        // --- Polling Control ---
-        const togglePolling = () => {
-            pollingActive = !pollingActive;
-            const btn = el('toggle-polling-btn');
-            const iconWrapper = el('toggle-polling-icon-wrapper'); // The span that contains the icon
-            const textEl = el('toggle-polling-text');
-
-            if (!btn || !iconWrapper || !textEl) {
-                console.error("Missing toggle polling elements in DOM.");
-                return;
-            }
-
-            let newIconName;
-            if (pollingActive) {
-                const interval = parseInt(el('poll-interval').value) * 1000 || 5000;
-                pollingIntervalId = setInterval(updateAllData, interval);
-                btn.classList.add('bg-rose-600', 'hover:bg-rose-700');
-                btn.classList.remove('secondary');
-                textEl.textContent = 'Stop Refresh';
-                newIconName = 'pause-circle';
-                updateAllData();
-            } else {
-                clearInterval(pollingIntervalId);
-                btn.classList.remove('bg-rose-600', 'hover:bg-rose-700');
-                btn.classList.add('secondary');
-                textEl.textContent = 'Start Refresh';
-                newIconName = 'play-circle';
-            }
-
-            // --- Dynamic Lucide Icon Update ---
-            // Clear existing icon (could be an <i> or an <svg>)
-            iconWrapper.innerHTML = '';
-            // Create new <i> element with the desired data-lucide attribute
-            const newIconElement = document.createElement('i');
-            newIconElement.setAttribute('data-lucide', newIconName);
-            // Append the new <i> element
-            iconWrapper.appendChild(newIconElement);
-            // Have Lucide process just this new element
-            lucide.createIcons({
-                container: newIconElement
-            });
-            // --- End Dynamic Lucide Icon Update ---
-        };
-
-        // Function to poll API status after an update
-        const pollApiStatus = (maxAttempts = 15, intervalMs = 5000) => {
-            let attempts = 0;
-            const outputEl = el('systemUpdateOutput');
-            outputEl.innerHTML = `<p class="text-yellow-400">API update triggered. Checking API status... (Attempt ${attempts + 1}/${maxAttempts})</p>`;
-            outputEl.classList.remove('hidden');
-
-            const pollInterval = setInterval(async () => {
-                attempts++;
-                const status = await makeApiCall('/status', 'GET', null, null, true); // Silent call
-                
-                if (status && status.status === 'ok') {
-                    clearInterval(pollInterval);
-                    showMessage('success', 'API is back online! Refreshing page in 3 seconds...');
-                    outputEl.innerHTML = `<p class="text-green-400">API is back online!</p>`;
-                    setTimeout(() => location.reload(), 3000);
-                } else if (attempts >= maxAttempts) {
-                    clearInterval(pollInterval);
-                    showMessage('error', 'API did not come back online within expected time. Please check Raspberry Pi logs or manually reboot.', 0); // Permanent message
-                    outputEl.innerHTML = `<p class="text-red-400">API did not come back online. Please check your Raspberry Pi logs for errors or manually reboot the device.</p>`;
-                } else {
-                    outputEl.innerHTML = `<p class="text-yellow-400">API update triggered. Checking API status... (Attempt ${attempts + 1}/${maxAttempts})</p>`;
-                }
-            }, intervalMs);
-        };
+    # If not performing a fresh install, attempt to load paths from existing config.ini
+    # This will override the defaults set above if a config is found.
+    if not args.install:
+        _load_paths_from_config() # This function will call _update_global_paths_runtime with loaded paths
 
 
-        const init = async () => {
-            // Initial call to lucide.createIcons() after the DOM is fully structured.
-            // This processes all initial data-lucide attributes on the page.
-            lucide.createIcons(); // This should be the ONLY global call to lucide.createIcons
-            
-            await updateStatus();
-            await checkInitialSetup();
-            updateAdminPanelState();
-            updateApiKeysList();
-            togglePolling(); // This will trigger the first icon update and render correctly
-        };
-        
-        // --- Event Listeners ---
-        el('tabs').addEventListener('click', e => {
-            if (e.target.matches('.tab-button')) {
-                document.querySelector('.tab-button.active').classList.remove('active');
-                e.target.classList.add('active');
-                document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
-                el(`tab-${e.target.dataset.tab}`).classList.add('active');
-                
-                // Special handling for map tabs to invalidate size
-                const activeTabName = e.target.dataset.tab;
-                if (activeTabName === 'gps' || activeTabName === 'location') {
-                    // Give Leaflet a moment to adjust to the new container size
-                    setTimeout(() => {
-                        if (mymap) {
-                            mymap.invalidateSize();
-                        }
-                    }, 100);
-                }
-                updateTabData(activeTabName);
-            }
-        });
-        
-        el('toggle-polling-btn').addEventListener('click', togglePolling);
-        el('clear-output-btn').addEventListener('click', () => el('api-output').innerHTML = '');
-        el('createInitialAdminBtn').addEventListener('click', createInitialAdmin);
-        el('adminLoginBtn').addEventListener('click', loginAdmin);
-        el('adminLogoutBtn').addEventListener('click', logoutAdmin);
-        el('externalKeyNameSelect').addEventListener('change', (e) => {
-            if (e.target.value === 'OTHER') {
-                el('externalKeyNameOther').classList.remove('hidden');
-            } else {
-                el('externalKeyNameOther').classList.add('hidden');
-            }
-        });
+    # Process arguments
+    if len(sys.argv) == 1:
+        parser.print_help()
+        sys.exit(0)
 
-        // Add event listener for the new update button
-        el('trigger-system-update-btn').addEventListener('click', async () => {
-            showMessage('info', 'Initiating system update... This may take a few minutes and will restart API services. Check systemUpdateOutput box for details.', 0); // Indefinite message
-            const result = await makeApiCall('/system/trigger-update', 'POST', null, 'systemUpdateOutput', false);
-            if (result.message) {
-                // Start polling API status after successful trigger
-                pollApiStatus();
-            } else if (result.error) {
-                showMessage('error', `Update failed to start: ${result.error}`);
-            }
-        });
+    if args.install:
+        check_root()
+        prompt_for_paths() # Prompt to get user-defined paths if installing (updates globals)
+        install_system_and_python_deps()
+        configure_hfgcspy_app()
+        configure_apache2_webui()
+        setup_systemd_service()
+        log_info("HFGCSpy installation complete. Please consider rebooting your Raspberry Pi for full effect.")
+    elif args.run:
+        check_root() # Running main app requires root for SDR
+        run_hfgcspy()
+    elif args.stop:
+        check_root()
+        stop_hfgcspy()
+    elif args.status:
+        status_hfgcspy()
+    elif args.uninstall:
+        check_root()
+        uninstall_hfgcspy()
+    elif args.update:
+        check_root()
+        update_hfgcspy_app_code()
+    elif args.check_sdr:
+        check_sdr()
+    else:
+        parser.print_help()
 
-        init();
-    });
-    </script>
-</body>
-</html>
+if __name__ == "__main__":
+    main()
