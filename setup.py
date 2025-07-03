@@ -1,7 +1,7 @@
 # HFGCSpy/setup.py
 # Python-based installer for HFGCSpy application.
 # This script handles all installation, configuration, and service management.
-# Version: 2.0.13 # Version bump for critical constant definition order fix
+# Version: 2.1.1 # Version bump for fully automated, non-interactive installation
 
 import os
 import sys
@@ -12,10 +12,9 @@ import re
 import argparse
 
 # --- Script Version ---
-__version__ = "2.0.13" # Updated version
+__version__ = "2.1.1" # Updated version
 
 # --- Configuration Constants (Defined at module top-level for absolute clarity and immediate availability) ---
-# THESE ARE THE TRUE CONSTANTS, always available from the very start of script execution.
 HFGCSPY_REPO = "https://github.com/sworrl/HFGCSpy.git" # IMPORTANT: Ensure this is correct!
 HFGCSPY_SERVICE_NAME = "hfgcspy_docker.service" # Service name is constant
 HFGCSPY_DOCKER_IMAGE_NAME = "hfgcspy_image"
@@ -148,19 +147,12 @@ def _load_paths_from_config():
 # --- Installation Steps ---
 
 def prompt_for_paths():
-    log_info("Determining HFGCSpy installation paths:")
-
-    user_app_dir = input(f"Enter desired application installation directory (default: {APP_DIR_DEFAULT}): ").strip()
-    new_app_dir = user_app_dir if user_app_dir else APP_DIR_DEFAULT
+    # No prompts for paths as per new requirements. Use defaults.
+    log_info(f"Using default application installation directory: {APP_DIR_DEFAULT}")
+    log_info(f"Using default web UI hosting directory: {WEB_ROOT_DIR_DEFAULT}")
     
-    user_web_root_dir = input(f"Enter desired web UI hosting directory (default: {WEB_ROOT_DIR_DEFAULT}): ").strip()
-    new_web_root_dir = user_web_root_dir if user_web_root_dir else WEB_ROOT_DIR_DEFAULT
-    
-    # Update global paths AFTER user input
-    _set_global_paths_runtime(new_app_dir, new_web_root_dir)
-    
-    log_info(f"HFGCSpy application will be installed to: {HFGCSpy_APP_DIR}")
-    log_info(f"HFGCSpy web UI will be hosted at: {WEB_ROOT_DIR}")
+    # Update global paths with defaults (no user input)
+    _set_global_paths_runtime(APP_DIR_DEFAULT, WEB_ROOT_DIR_DEFAULT)
 
 def install_docker():
     log_info("Installing Docker Engine...")
