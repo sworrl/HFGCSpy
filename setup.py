@@ -1,7 +1,7 @@
 # HFGCSpy/setup.py
 # Python-based installer for HFGCSpy application.
 # This script handles all installation, configuration, and service management.
-# Version: 2.0.7 # Version bump for __pycache__ cleanup and final import fix
+# Version: 2.1.0 # Major version bump for fully automated Docker installation
 
 import os
 import sys
@@ -11,27 +11,30 @@ import shutil
 import re
 import argparse
 
+# Import constants from the new constants.py file
+try:
+    # Add current directory to path to allow importing constants.py
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    from constants import (
+        HFGCSPY_REPO, HFGCSPY_SERVICE_NAME, HFGCSPY_DOCKER_IMAGE_NAME,
+        HFGCSPY_DOCKER_CONTAINER_NAME, HFGCSpy_INTERNAL_PORT,
+        APP_DIR_DEFAULT, WEB_ROOT_DIR_DEFAULT, DOCKER_VOLUME_NAME
+    )
+except ImportError as e:
+    print(f"ERROR: Could not import constants.py. Make sure it's in the same directory as setup.py. Error: {e}")
+    sys.exit(1)
+
+
 # --- Script Version ---
-__version__ = "2.0.7" # Updated version
+__version__ = "2.1.0" # Updated version
 
-# --- Configuration Constants (Defined at module top-level for absolute clarity and immediate availability) ---
-HFGCSPY_REPO = "https://github.com/sworrl/HFGCSpy.git" # IMPORTANT: Ensure this is correct!
-HFGCSPY_SERVICE_NAME = "hfgcspy_docker.service" # Service name is constant
-HFGCSPY_DOCKER_IMAGE_NAME = "hfgcspy_image"
-HFGCSPY_DOCKER_CONTAINER_NAME = "hfgcspy_app"
-HFGCSPY_INTERNAL_PORT = "8002" # Port for Flask/Gunicorn INSIDE Docker container
-
-# Default base installation directories (THESE ARE THE TRUE CONSTANTS, always available)
-APP_DIR_DEFAULT = "/opt/hfgcspy" # Where the git repo is cloned on host
-WEB_ROOT_DIR_DEFAULT = "/var/www/html/hfgcspy" # Where static web UI files are copied
-DOCKER_VOLUME_NAME = "hfgcspy_data_vol" # Docker volume for SQLite DB and recordings
 
 # --- Global Path Variables (Initialized to None, will be set by _set_global_paths_runtime) ---
 # These are the variables that will hold the *actual* paths during script execution.
 # They are declared here, and their concrete values (derived from defaults or user input)
 # will be assigned ONLY within the _set_global_paths_runtime function.
 HFGCSpy_APP_DIR = None 
-HFGCSpy_VENV_DIR = None 
+HFGCSpy_VENV_DIR = None # Not used for host-side venv anymore, but kept for consistency
 HFGCSpy_CONFIG_FILE = None
 
 WEB_ROOT_DIR = None
@@ -65,10 +68,14 @@ def ask_yes_no(question):
 def run_command(command, check_return=True, capture_output=False, shell=False):
     log_info(f"Executing: {' '.join(command) if isinstance(command, list) else command}")
     try:
-        if isinstance(command, list) and (command[0] == sys.executable or command[0].endswith("/python3") or command[0].endswith("/pip")): 
+        # For shell commands that might need pipes or redirects, use shell=True
+        # For direct executable calls, list format is better.
+        # Check if command is a list (direct exec) or string (shell)
+        if isinstance(command, list) and not shell:
              result = subprocess.run(command, check=check_return, capture_output=capture_output, text=True)
-        else:
-            result = subprocess.run(command, check=check_return, capture_output=capture_output, text=True, shell=shell)
+        else: # If shell=True is forced or command is string
+            result = subprocess.run(command, check=check_return, capture_output=capture_output, text=True, shell=True)
+        
         if capture_output:
             return result.stdout.strip()
         return result
@@ -81,7 +88,7 @@ def run_command(command, check_return=True, capture_output=False, shell=False):
 
 def check_root():
     if os.geteuid() != 0:
-        log_error("This script must be run with sudo. Please run: sudo ./setup.py --install") # Updated command for user
+        log_error("This script must be run with sudo. Please run: sudo python3 setup.py --install") # Updated command for user
 
 # --- Path Management Functions ---
 
@@ -144,22 +151,15 @@ def _load_paths_from_config():
         _set_global_paths_runtime(APP_DIR_DEFAULT, WEB_ROOT_DIR_DEFAULT) # Ensure paths are set even if config not found
         return False
 
-# --- Installation Steps (Definitions moved to top to ensure availability) ---
+# --- Installation Steps ---
 
 def prompt_for_paths():
-    log_info("Determining HFGCSpy installation paths:")
-
-    user_app_dir = input(f"Enter desired application installation directory (default: {APP_DIR_DEFAULT}): ").strip()
-    new_app_dir = user_app_dir if user_app_dir else APP_DIR_DEFAULT
+    # No prompts for paths as per new requirements. Use defaults.
+    log_info(f"Using default application installation directory: {APP_DIR_DEFAULT}")
+    log_info(f"Using default web UI hosting directory: {WEB_ROOT_DIR_DEFAULT}")
     
-    user_web_root_dir = input(f"Enter desired web UI hosting directory (default: {WEB_ROOT_DIR_DEFAULT}): ").strip()
-    new_web_root_dir = user_web_root_dir if user_web_root_dir else WEB_ROOT_DIR_DEFAULT
-    
-    # Update global paths AFTER user input
-    _set_global_paths_runtime(new_app_dir, new_web_root_dir)
-    
-    log_info(f"HFGCSpy application will be installed to: {HFGCSpy_APP_DIR}")
-    log_info(f"HFGCSpy web UI will be hosted at: {WEB_ROOT_DIR}")
+    # Update global paths with defaults (no user input)
+    _set_global_paths_runtime(APP_DIR_DEFAULT, WEB_ROOT_DIR_DEFAULT)
 
 def install_docker():
     log_info("Installing Docker Engine...")
