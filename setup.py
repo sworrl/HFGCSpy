@@ -1,7 +1,7 @@
 # HFGCSpy/setup.py
 # Python-based installer for HFGCSpy application.
 # This script handles all installation, configuration, and service management.
-# Version: 2.2.1 # Major version bump for definitively removing constants.py import
+# Version: 2.2.2 # Version bump for typo fix and dev wipe functionality
 
 import os
 import sys
@@ -12,7 +12,7 @@ import re
 import argparse
 
 # --- Script Version ---
-__version__ = "2.2.1" # Updated version
+__version__ = "2.2.2" # Updated version for typo fix and dev wipe
 
 # --- Configuration Constants (Defined directly in setup.py) ---
 # All constants are now embedded directly in this file to avoid import issues.
@@ -200,10 +200,10 @@ def install_system_dependencies():
 def clone_hfgcspy_app_code(): # Renamed from clone_and_setup_venv
     log_info(f"Cloning HFGCSpy application from GitHub to {HFGCSpy_APP_DIR}...")
     if os.path.exists(HFGCSpy_APP_DIR):
-        log_warn(f"HFGCSpy directory {HFGCSpy_APP_DIR} already exists. Skipping clone. Use --uninstall first if you want a fresh install.")
-        return False # Indicate no fresh clone
-    else:
-        run_command(["git", "clone", HFGCSpy_REPO, HFGCSpy_APP_DIR]) # HFGCSpy_REPO is global constant
+        log_warn(f"HFGCSpy directory {HFGCSpy_APP_DIR} already exists. Wiping contents for dev install.")
+        shutil.rmtree(HFGCSpy_APP_DIR) # Explicitly wipe for dev install
+    
+    run_command(["git", "clone", HFGCSPY_REPO, HFGCSpy_APP_DIR]) # HFGCSpy_REPO is global constant
     
     # Removed host-side venv setup and pip install. Dockerfile handles this.
     log_info("Python virtual environment and dependencies will be set up inside the Docker image.")
@@ -266,8 +266,8 @@ def configure_hfgcspy_app():
 
     config_obj.set('app', 'mode', 'standalone') # Ensure mode is standalone
     config_obj.set('app', 'database_path', "/app/data/hfgcspy.db") # Path inside Docker container
-    config_obj.set('app', 'internal_port', HFGCSpy_INTERNAL_PORT) # Internal port for Flask
-
+    config_obj.set('app', 'internal_port', HFGCSPY_INTERNAL_PORT) # Corrected typo here
+    
     # These paths are now relative to the container's /app directory,
     # as they are accessed by the Python app *inside* the container.
     # The Docker volume mount handles the host-side persistence.
@@ -317,8 +317,8 @@ def configure_apache2_webui():
 
     log_info(f"Copying HFGCSpy web UI files to Apache web root: {WEB_ROOT_DIR}")
     if os.path.exists(WEB_ROOT_DIR):
-        log_warn(f"Existing web UI directory {WEB_ROOT_DIR} found. Removing contents before copying new files.")
-        shutil.rmtree(WEB_ROOT_DIR) 
+        log_warn(f"Existing web UI directory {WEB_ROOT_DIR} found. Wiping contents for dev install.")
+        shutil.rmtree(WEB_ROOT_DIR) # Explicitly wipe for dev install
     os.makedirs(WEB_ROOT_DIR, exist_ok=True)
     
     # Copy contents of web_ui directory
@@ -455,7 +455,7 @@ def configure_apache2_webui():
         
         apache_conf_content += """
     # HSTS (optional, highly recommended for security)
-    Header always set Strict-TransportSecurity "max-age=63072000; includeSubDomains; preload"
+    Header always set Strict-Transport-Security "max-age=63072000; includeSubDomains; preload"
 </VirtualHost>
 """
         log_info(f"Apache2 SSL configuration included for {ssl_domain}.")
