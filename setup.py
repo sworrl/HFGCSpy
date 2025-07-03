@@ -1,7 +1,7 @@
 # HFGCSpy/setup.py
 # Python-based installer for HFGCSpy application.
 # This script handles all installation, configuration, and service management.
-# Version: 2.1.0 # Major version bump for fully automated Docker installation
+# Version: 2.0.12 # Version bump for robust constants import fix
 
 import os
 import sys
@@ -11,30 +11,15 @@ import shutil
 import re
 import argparse
 
-# Import constants from the new constants.py file
-try:
-    # Add current directory to path to allow importing constants.py
-    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-    from constants import (
-        HFGCSPY_REPO, HFGCSPY_SERVICE_NAME, HFGCSPY_DOCKER_IMAGE_NAME,
-        HFGCSPY_DOCKER_CONTAINER_NAME, HFGCSpy_INTERNAL_PORT,
-        APP_DIR_DEFAULT, WEB_ROOT_DIR_DEFAULT, DOCKER_VOLUME_NAME
-    )
-except ImportError as e:
-    print(f"ERROR: Could not import constants.py. Make sure it's in the same directory as setup.py. Error: {e}")
-    sys.exit(1)
-
-
 # --- Script Version ---
-__version__ = "2.1.0" # Updated version
+__version__ = "2.0.12" # Updated version
 
-
-# --- Global Path Variables (Initialized to None, will be set by _set_global_paths_runtime) ---
+# --- Configuration Constants (Defined at module top-level for absolute clarity and immediate availability) ---
 # These are the variables that will hold the *actual* paths during script execution.
 # They are declared here, and their concrete values (derived from defaults or user input)
 # will be assigned ONLY within the _set_global_paths_runtime function.
 HFGCSpy_APP_DIR = None 
-HFGCSpy_VENV_DIR = None # Not used for host-side venv anymore, but kept for consistency
+HFGCSpy_VENV_DIR = None 
 HFGCSpy_CONFIG_FILE = None
 
 WEB_ROOT_DIR = None
@@ -150,12 +135,19 @@ def _load_paths_from_config():
 # --- Installation Steps ---
 
 def prompt_for_paths():
-    # No prompts for paths as per new requirements. Use defaults.
-    log_info(f"Using default application installation directory: {APP_DIR_DEFAULT}")
-    log_info(f"Using default web UI hosting directory: {WEB_ROOT_DIR_DEFAULT}")
+    log_info("Determining HFGCSpy installation paths:")
+
+    user_app_dir = input(f"Enter desired application installation directory (default: {APP_DIR_DEFAULT}): ").strip()
+    new_app_dir = user_app_dir if user_app_dir else APP_DIR_DEFAULT
     
-    # Update global paths with defaults (no user input)
-    _set_global_paths_runtime(APP_DIR_DEFAULT, WEB_ROOT_DIR_DEFAULT)
+    user_web_root_dir = input(f"Enter desired web UI hosting directory (default: {WEB_ROOT_DIR_DEFAULT}): ").strip()
+    new_web_root_dir = user_web_root_dir if user_web_root_dir else WEB_ROOT_DIR_DEFAULT
+    
+    # Update global paths AFTER user input
+    _set_global_paths_runtime(new_app_dir, new_web_root_dir)
+    
+    log_info(f"HFGCSpy application will be installed to: {HFGCSpy_APP_DIR}")
+    log_info(f"HFGCSpy web UI will be hosted at: {WEB_ROOT_DIR}")
 
 def install_docker():
     log_info("Installing Docker Engine...")
