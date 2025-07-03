@@ -1,7 +1,7 @@
 # HFGCSpy/setup.py
 # Python-based installer for HFGCSpy application.
 # This script handles all installation, configuration, and service management.
-# Version: 2.1.1 # Version bump for fully automated, non-interactive installation
+# Version: 2.1.2 # Version bump for robust constants import fix (direct module access)
 
 import os
 import sys
@@ -12,19 +12,7 @@ import re
 import argparse
 
 # --- Script Version ---
-__version__ = "2.1.1" # Updated version
-
-# --- Configuration Constants (Defined at module top-level for absolute clarity and immediate availability) ---
-HFGCSPY_REPO = "https://github.com/sworrl/HFGCSpy.git" # IMPORTANT: Ensure this is correct!
-HFGCSPY_SERVICE_NAME = "hfgcspy_docker.service" # Service name is constant
-HFGCSPY_DOCKER_IMAGE_NAME = "hfgcspy_image"
-HFGCSPY_DOCKER_CONTAINER_NAME = "hfgcspy_app"
-HFGCSPY_INTERNAL_PORT = "8002" # Port for Flask/Gunicorn INSIDE Docker container
-
-# Default installation paths on the HOST system
-APP_DIR_DEFAULT = "/opt/hfgcspy" # Where the git repo is cloned on host
-WEB_ROOT_DIR_DEFAULT = "/var/www/html/hfgcspy" # Where static web UI files are copied
-DOCKER_VOLUME_NAME = "hfgcspy_data_vol" # Docker volume for SQLite DB and recordings
+__version__ = "2.1.2" # Updated version
 
 # --- Global Path Variables (Initialized to None, will be set by _set_global_paths_runtime) ---
 # These are the variables that will hold the *actual* paths during script execution.
@@ -38,6 +26,38 @@ WEB_ROOT_DIR = None
 HFGCSPY_DATA_DIR = None
 HFGCSPY_RECORDINGS_PATH = None
 HFGCSPY_CONFIG_JSON_PATH = None
+
+
+# --- Import constants from constants.py ---
+# This is the critical import. It must be able to find constants.py
+# and the names within it.
+try:
+    # Ensure current directory is in sys.path for direct import
+    _script_dir = os.path.dirname(os.path.abspath(__file__))
+    if _script_dir not in sys.path:
+        sys.path.insert(0, _script_dir)
+    
+    import constants # Import the module directly
+    
+    # Access constants via the module name
+    HFGCSPY_REPO = constants.HFGCSPY_REPO
+    HFGCSPY_SERVICE_NAME = constants.HFGCSPY_SERVICE_NAME
+    HFGCSPY_DOCKER_IMAGE_NAME = constants.HFGCSPY_DOCKER_IMAGE_NAME
+    HFGCSPY_DOCKER_CONTAINER_NAME = constants.HFGCSPY_DOCKER_CONTAINER_NAME
+    HFGCSPY_INTERNAL_PORT = constants.HFGCSPY_INTERNAL_PORT
+    APP_DIR_DEFAULT = constants.APP_DIR_DEFAULT
+    WEB_ROOT_DIR_DEFAULT = constants.WEB_ROOT_DIR_DEFAULT
+    DOCKER_VOLUME_NAME = constants.DOCKER_VOLUME_NAME
+    
+    # Debugging: Print available names in constants module
+    print(f"DEBUG: Contents of constants module: {dir(constants)}")
+
+except ImportError as e:
+    print(f"ERROR: Could not import constants.py. Make sure it's in the same directory as setup.py. Error: {e}")
+    sys.exit(1)
+except AttributeError as e:
+    print(f"ERROR: Missing expected constant in constants.py. Error: {e}")
+    sys.exit(1)
 
 
 # --- Helper Functions ---
@@ -147,12 +167,19 @@ def _load_paths_from_config():
 # --- Installation Steps ---
 
 def prompt_for_paths():
-    # No prompts for paths as per new requirements. Use defaults.
-    log_info(f"Using default application installation directory: {APP_DIR_DEFAULT}")
-    log_info(f"Using default web UI hosting directory: {WEB_ROOT_DIR_DEFAULT}")
+    log_info("Determining HFGCSpy installation paths:")
+
+    user_app_dir = input(f"Enter desired application installation directory (default: {APP_DIR_DEFAULT}): ").strip()
+    new_app_dir = user_app_dir if user_app_dir else APP_DIR_DEFAULT
     
-    # Update global paths with defaults (no user input)
-    _set_global_paths_runtime(APP_DIR_DEFAULT, WEB_ROOT_DIR_DEFAULT)
+    user_web_root_dir = input(f"Enter desired web UI hosting directory (default: {WEB_ROOT_DIR_DEFAULT}): ").strip()
+    new_web_root_dir = user_web_root_dir if user_web_root_dir else WEB_ROOT_DIR_DEFAULT
+    
+    # Update global paths AFTER user input
+    _set_global_paths_runtime(new_app_dir, new_web_root_dir)
+    
+    log_info(f"HFGCSpy application will be installed to: {HFGCSpy_APP_DIR}")
+    log_info(f"HFGCSpy web UI will be hosted at: {WEB_ROOT_DIR}")
 
 def install_docker():
     log_info("Installing Docker Engine...")
