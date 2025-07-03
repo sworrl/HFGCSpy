@@ -1,7 +1,7 @@
 # HFGCSpy/setup.py
 # Python-based installer for HFGCSpy application.
 # This script handles all installation, configuration, and service management.
-# Version: 2.2.11 # Version bump for enhanced web_ui FileNotFoundError diagnosis
+# Version: 2.2.12 # Version bump for corrected web_ui source path
 
 import os
 import sys
@@ -12,7 +12,7 @@ import re
 import argparse
 
 # --- Script Version ---
-__version__ = "2.2.11" # Updated version for enhanced web_ui FileNotFoundError diagnosis
+__version__ = "2.2.12" # Updated version for corrected web_ui source path
 
 # --- Configuration Constants (Defined directly in setup.py) ---
 # All constants are now embedded directly in this file to avoid import issues.
@@ -211,11 +211,8 @@ def clone_hfgcspy_app_code(): # Renamed from clone_and_setup_venv
     log_info(f"Verifying contents of cloned directory: {HFGCSpy_APP_DIR}")
     run_command(["ls", "-l", HFGCSpy_APP_DIR], shell=False) # Use shell=False for direct execution
     
-    # Explicitly check for web_ui immediately after cloning
-    expected_web_ui_path = os.path.join(HFGCSpy_APP_DIR, "web_ui")
-    if not os.path.exists(expected_web_ui_path):
-        log_error(f"CRITICAL: 'web_ui' directory not found in cloned repository at {expected_web_ui_path}. "
-                  f"The git clone might have failed or the repository structure is unexpected.")
+    # Removed the explicit check for 'web_ui' subdirectory as it's not expected to exist
+    # and the web files are now copied from the app root.
     # --- End enhanced diagnostic and validation ---
 
     # Removed host-side venv setup and pip install. Dockerfile handles this.
@@ -336,16 +333,20 @@ def configure_apache2_webui():
         shutil.rmtree(WEB_ROOT_DIR) # Explicitly wipe for dev install
     os.makedirs(WEB_ROOT_DIR, exist_ok=True)
     
-    src_web_ui_dir = os.path.join(HFGCSpy_APP_DIR, "web_ui")
+    # Corrected source directory: copy directly from HFGCSpy_APP_DIR
+    src_web_ui_dir = HFGCSpy_APP_DIR 
 
-    # Explicitly check if the source web UI directory exists
-    if not os.path.exists(src_web_ui_dir):
-        log_error(f"Source web UI directory not found: {src_web_ui_dir}. "
-                  f"This indicates a problem during the git clone step or repository structure.")
+    # Removed the explicit check for 'web_ui' subdirectory as it's no longer expected.
+    # The previous diagnostic `ls -l` in clone_hfgcspy_app_code is sufficient for verification.
 
     for item in os.listdir(src_web_ui_dir):
+        # Skip core/ and data/ and logs/ directories as they are not web UI files
+        if item in ["core", "data", "logs", "venv", ".git", ".github", "Dockerfile", "setup.py", "requirements.txt", "config.ini.template"]:
+            continue
+        
         s = os.path.join(src_web_ui_dir, item)
         d = os.path.join(WEB_ROOT_DIR, item)
+        
         if os.path.isdir(s):
             shutil.copytree(s, d, dirs_exist_ok=True)
         else:
@@ -554,10 +555,16 @@ def update_hfgcspy_app_code():
     if os.path.exists(WEB_ROOT_DIR):
         shutil.rmtree(WEB_ROOT_DIR) 
     os.makedirs(WEB_ROOT_DIR, exist_ok=True)
-    src_web_ui_dir = os.path.join(HFGCSpy_APP_DIR, "web_ui")
+    src_web_ui_dir = HFGCSpy_APP_DIR # Corrected source directory for update
+
     for item in os.listdir(src_web_ui_dir):
+        # Skip core/ and data/ and logs/ directories as they are not web UI files
+        if item in ["core", "data", "logs", "venv", ".git", ".github", "Dockerfile", "setup.py", "requirements.txt", "config.ini.template"]:
+            continue
+        
         s = os.path.join(src_web_ui_dir, item)
         d = os.path.join(WEB_ROOT_DIR, item)
+        
         if os.path.isdir(s):
             shutil.copytree(s, d, dirs_exist_ok=True)
         else:
