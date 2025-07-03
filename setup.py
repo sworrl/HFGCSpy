@@ -1,7 +1,7 @@
 # HFGCSpy/setup.py
 # Python-based installer for HFGCSpy application.
 # This script handles all installation, configuration, and service management.
-# Version: 2.0.4 # Version bump for critical constant definition fix
+# Version: 2.0.5 # Version bump for constants file integration and final NameError fix
 
 import os
 import sys
@@ -14,7 +14,8 @@ import argparse
 # Import constants from the new constants.py file
 try:
     # Add current directory to path to allow importing constants.py
-    sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+    # This is crucial when setup.py is run from a temporary directory
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
     from constants import (
         HFGCSPY_REPO, HFGCSPY_SERVICE_NAME, HFGCSPY_DOCKER_IMAGE_NAME,
         HFGCSPY_DOCKER_CONTAINER_NAME, HFGCSpy_INTERNAL_PORT,
@@ -26,7 +27,7 @@ except ImportError as e:
 
 
 # --- Script Version ---
-__version__ = "2.0.4" # Updated version
+__version__ = "2.0.5" # Updated version
 
 
 # --- Global Path Variables (Initialized to None, will be set by _set_global_paths_runtime) ---
