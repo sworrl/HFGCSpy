@@ -1,7 +1,7 @@
 # HFGCSpy/setup.py
 # Python-based installer for HFGCSpy application.
 # This script handles all installation, configuration, and service management.
-# Version: 2.2.7 # Version bump for typo fix
+# Version: 2.2.8 # Version bump for typo fix
 
 import os
 import sys
@@ -12,7 +12,7 @@ import re
 import argparse
 
 # --- Script Version ---
-__version__ = "2.2.7" # Updated version for typo fix
+__version__ = "2.2.8" # Updated version for typo fix
 
 # --- Configuration Constants (Defined directly in setup.py) ---
 # All constants are now embedded directly in this file to avoid import issues.
@@ -295,7 +295,7 @@ def configure_hfgcspy_app():
     # Create web-accessible data directories on HOST and set permissions for Apache
     log_info(f"Creating web-accessible data directories on host: {HFGCSpy_DATA_DIR} and {HFGCSPY_RECORDINGS_PATH}.") # Corrected typo here
     os.makedirs(HFGCSpy_DATA_DIR, exist_ok=True)
-    os.makedirs(HFGCSpy_RECORDINGS_PATH, exist_ok=True)
+    os.makedirs(HFGCSPY_RECORDINGS_PATH, exist_ok=True) # Corrected typo here
     run_command(["chown", "-R", "www-data:www-data", HFGCSpy_DATA_DIR])
     run_command(["chmod", "-R", "775", HFGCSpy_DATA_DIR]) # Allow www-data read/write, others read/execute
 
