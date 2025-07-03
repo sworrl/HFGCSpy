@@ -1,7 +1,7 @@
 # HFGCSpy/setup.py
 # Python-based installer for HFGCSpy application.
 # This script handles all installation, configuration, and service management.
-# Version: 2.2.2 # Version bump for typo fix and dev wipe functionality
+# Version: 2.2.3 # Version bump for Docker existence check
 
 import os
 import sys
@@ -12,7 +12,7 @@ import re
 import argparse
 
 # --- Script Version ---
-__version__ = "2.2.2" # Updated version for typo fix and dev wipe
+__version__ = "2.2.3" # Updated version for Docker existence check
 
 # --- Configuration Constants (Defined directly in setup.py) ---
 # All constants are now embedded directly in this file to avoid import issues.
@@ -147,15 +147,16 @@ def _load_paths_from_config():
 
 # --- Installation Steps ---
 
-def prompt_for_paths():
-    # No prompts for paths as per new requirements. Use defaults.
-    log_info(f"Using default application installation directory: {APP_DIR_DEFAULT}")
-    log_info(f"Using default web UI hosting directory: {WEB_ROOT_DIR_DEFAULT}")
-    
-    # Update global paths with defaults (no user input)
-    _set_global_paths_runtime(APP_DIR_DEFAULT, WEB_ROOT_DIR_DEFAULT)
-
 def install_docker():
+    log_info("Checking if Docker Engine is already installed...")
+    try:
+        # Check if 'docker' command is available and executable
+        subprocess.run(["docker", "--version"], check=True, capture_output=True, text=True)
+        log_info("Docker Engine detected. Skipping installation.")
+        return
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        log_info("Docker Engine not found. Proceeding with installation...")
+
     log_info("Installing Docker Engine...")
     # Add Docker's official GPG key
     run_command("sudo mkdir -p /etc/apt/keyrings", shell=True)
