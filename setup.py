@@ -1,7 +1,7 @@
 # HFGCSpy/setup.py
 # Python-based installer for HFGCSpy application.
 # This script handles all installation, configuration, and service management.
-# Version: 2.2.0 # Major version bump for combining constants.py
+# Version: 2.1.3 # Version bump for robust constants access and silent install
 
 import os
 import sys
@@ -12,19 +12,7 @@ import re
 import argparse
 
 # --- Script Version ---
-__version__ = "2.2.0" # Updated version
-
-# --- Configuration Constants (Defined directly in setup.py) ---
-HFGCSPY_REPO = "https://github.com/sworrl/HFGCSpy.git" # IMPORTANT: Ensure this is correct!
-HFGCSPY_SERVICE_NAME = "hfgcspy_docker.service" # Service name is constant
-HFGCSPY_DOCKER_IMAGE_NAME = "hfgcspy_image"
-HFGCSPY_DOCKER_CONTAINER_NAME = "hfgcspy_app"
-HFGCSPY_INTERNAL_PORT = "8002" # Port for Flask/Gunicorn INSIDE Docker container
-
-# Default installation paths on the HOST system
-APP_DIR_DEFAULT = "/opt/hfgcspy" # Where the git repo is cloned on host
-WEB_ROOT_DIR_DEFAULT = "/var/www/html/hfgcspy" # Where static web UI files are copied
-DOCKER_VOLUME_NAME = "hfgcspy_data_vol" # Docker volume for SQLite DB and recordings
+__version__ = "2.1.3" # Updated version
 
 # --- Global Path Variables (Initialized to None, will be set by _set_global_paths_runtime) ---
 # These are the variables that will hold the *actual* paths during script execution.
@@ -38,6 +26,28 @@ WEB_ROOT_DIR = None
 HFGCSPY_DATA_DIR = None
 HFGCSPY_RECORDINGS_PATH = None
 HFGCSPY_CONFIG_JSON_PATH = None
+
+
+# --- Import constants from constants.py ---
+# This is the critical import. It must be able to find constants.py
+# and the names within it.
+try:
+    # Ensure current directory is in sys.path for direct import
+    _script_dir = os.path.dirname(os.path.abspath(__file__))
+    if _script_dir not in sys.path:
+        sys.path.insert(0, _script_dir)
+    
+    import constants # Import the module directly
+    
+    # Debugging: Print available names in constants module
+    print(f"DEBUG: Contents of constants module: {dir(constants)}")
+
+except ImportError as e:
+    print(f"ERROR: Could not import constants.py. Make sure it's in the same directory as setup.py. Error: {e}")
+    sys.exit(1)
+except AttributeError as e:
+    print(f"ERROR: Missing expected constant in constants.py. Error: {e}")
+    sys.exit(1)
 
 
 # --- Helper Functions ---
@@ -108,7 +118,7 @@ def _load_paths_from_config():
     # This function will call _update_global_paths_runtime once it has determined the base directories.
     
     config_read = configparser.ConfigParser()
-    installed_config_path = os.path.join(APP_DIR_DEFAULT, "config.ini") # Use constant APP_DIR_DEFAULT 
+    installed_config_path = os.path.join(constants.APP_DIR_DEFAULT, "config.ini") # Use constant APP_DIR_DEFAULT 
 
     if os.path.exists(installed_config_path):
         try:
@@ -116,9 +126,9 @@ def _load_paths_from_config():
             # Database path is absolute, use it to deduce installed app_dir
             # For Dockerized app, database_path in config.ini is now relative to container's /app
             # So we need to derive host path from WEB_ROOT_DIR
-            app_dir_from_config = APP_DIR_DEFAULT # Assume app is always cloned to default host path
+            app_dir_from_config = constants.APP_DIR_DEFAULT # Assume app is always cloned to default host path
 
-            web_root_dir_from_config = WEB_ROOT_DIR_DEFAULT # Default fallback
+            web_root_dir_from_config = constants.WEB_ROOT_DIR_DEFAULT # Default fallback
             if config_read.has_section('app_paths') and config_read.has_option('app_paths', 'status_file'):
                 full_status_path = config_read.get('app_paths', 'status_file')
                 match = re.search(r"^(.*)/hfgcspy_data/status\.json$", full_status_path)
@@ -130,29 +140,29 @@ def _load_paths_from_config():
                 log_warn("app_paths section or status_file option missing in config.ini. Using default WEB_ROOT_DIR.")
 
             # If app_dir_from_config is empty (e.g., config.ini is minimal or old), use default base
-            if not app_dir_from_config: app_dir_from_config = APP_DIR_DEFAULT
+            if not app_dir_from_config: app_dir_from_config = constants.APP_DIR_DEFAULT
 
             _set_global_paths_runtime(app_dir_from_config, web_root_dir_from_config)
             log_info(f"Loaded install paths from config: App='{HFGCSpy_APP_DIR}', Web='{WEB_ROOT_DIR}'")
             return True # Paths loaded successfully
         except configparser.Error as e:
             log_warn(f"Error reading config.ini for paths: {e}. Falling back to default paths.")
-            _set_global_paths_runtime(APP_DIR_DEFAULT, WEB_ROOT_DIR_DEFAULT) # Ensure paths are reset to defaults
+            _set_global_paths_runtime(constants.APP_DIR_DEFAULT, constants.WEB_ROOT_DIR_DEFAULT) # Ensure paths are reset to defaults
             return False
     else:
         log_warn("config.ini not found at default app directory. Using default paths.")
-        _set_global_paths_runtime(APP_DIR_DEFAULT, WEB_ROOT_DIR_DEFAULT) # Ensure paths are set even if config not found
+        _set_global_paths_runtime(constants.APP_DIR_DEFAULT, constants.WEB_ROOT_DIR_DEFAULT) # Ensure paths are set even if config not found
         return False
 
 # --- Installation Steps ---
 
 def prompt_for_paths():
     # No prompts for paths as per new requirements. Use defaults.
-    log_info(f"Using default application installation directory: {APP_DIR_DEFAULT}")
-    log_info(f"Using default web UI hosting directory: {WEB_ROOT_DIR_DEFAULT}")
+    log_info(f"Using default application installation directory: {constants.APP_DIR_DEFAULT}")
+    log_info(f"Using default web UI hosting directory: {constants.WEB_ROOT_DIR_DEFAULT}")
     
     # Update global paths with defaults (no user input)
-    _set_global_paths_runtime(APP_DIR_DEFAULT, WEB_ROOT_DIR_DEFAULT)
+    _set_global_paths_runtime(constants.APP_DIR_DEFAULT, constants.WEB_ROOT_DIR_DEFAULT)
 
 def install_docker():
     log_info("Installing Docker Engine...")
@@ -202,42 +212,42 @@ def clone_hfgcspy_app_code(): # Renamed from clone_and_setup_venv
         log_warn(f"HFGCSpy directory {HFGCSpy_APP_DIR} already exists. Skipping clone. Use --uninstall first if you want a fresh install.")
         return False # Indicate no fresh clone
     else:
-        run_command(["git", "clone", HFGCSpy_REPO, HFGCSpy_APP_DIR]) # HFGCSpy_REPO is global constant
+        run_command(["git", "clone", constants.HFGCSPY_REPO, HFGCSpy_APP_DIR]) # HFGCSpy_REPO is global constant
     
     # Removed host-side venv setup and pip install. Dockerfile handles this.
     log_info("Python virtual environment and dependencies will be set up inside the Docker image.")
     return True # Indicate fresh clone
 
 def build_and_run_docker_container():
-    log_info(f"Building Docker image '{HFGCSPY_DOCKER_IMAGE_NAME}' for HFGCSpy...")
+    log_info(f"Building Docker image '{constants.HFGCSPY_DOCKER_IMAGE_NAME}' for HFGCSpy...")
     current_dir = os.getcwd()
     os.chdir(HFGCSpy_APP_DIR) # Change to app dir to build Dockerfile
-    run_command(f"docker build -t {HFGCSPY_DOCKER_IMAGE_NAME} .", shell=True)
+    run_command(f"docker build -t {constants.HFGCSPY_DOCKER_IMAGE_NAME} .", shell=True)
     os.chdir(current_dir) # Change back
 
-    log_info(f"Stopping and removing any existing Docker container '{HFGCSPY_DOCKER_CONTAINER_NAME}'...")
-    run_command(f"docker stop {HFGCSPY_DOCKER_CONTAINER_NAME}", shell=True, check_return=False)
-    run_command(f"docker rm {HFGCSPY_DOCKER_CONTAINER_NAME}", shell=True, check_return=False)
+    log_info(f"Stopping and removing any existing Docker container '{constants.HFGCSPY_DOCKER_CONTAINER_NAME}'...")
+    run_command(f"docker stop {constants.HFGCSPY_DOCKER_CONTAINER_NAME}", shell=True, check_return=False)
+    run_command(f"docker rm {constants.HFGCSPY_DOCKER_CONTAINER_NAME}", shell=True, check_return=False)
 
-    log_info(f"Creating Docker volume '{DOCKER_VOLUME_NAME}' for persistent data...")
-    run_command(f"docker volume create {DOCKER_VOLUME_NAME}", shell=True, check_return=False) # check_return=False if volume might exist
+    log_info(f"Creating Docker volume '{constants.DOCKER_VOLUME_NAME}' for persistent data...")
+    run_command(f"docker volume create {constants.DOCKER_VOLUME_NAME}", shell=True, check_return=False) # check_return=False if volume might exist
 
-    log_info(f"Running Docker container '{HFGCSPY_DOCKER_CONTAINER_NAME}' for HFGCSpy...")
+    log_info(f"Running Docker container '{constants.HFGCSPY_DOCKER_CONTAINER_NAME}' for HFGCSpy...")
     # Mount config.ini from host into container for easy editing
     # Mount the data volume for DB and recordings
     # Pass SDR device
     # Map internal Flask port to a host port (e.g., 8002) for Apache2 proxy
     run_command([
         "docker", "run", "-d",
-        "--name", HFGCSPY_DOCKER_CONTAINER_NAME,
+        "--name", constants.HFGCSPY_DOCKER_CONTAINER_NAME,
         "--restart", "unless-stopped",
         "--device", "/dev/bus/usb:/dev/bus/usb", # Pass SDR device
-        "-p", f"127.0.0.1:{HFGCSpy_INTERNAL_PORT}:{HFGCSpy_INTERNAL_PORT}", # Map internal port to localhost on host
+        "-p", f"127.0.0.1:{constants.HFGCSPY_INTERNAL_PORT}:{constants.HFGCSPY_INTERNAL_PORT}", # Map internal port to localhost on host
         "-v", f"{HFGCSpy_CONFIG_FILE}:/app/config.ini:ro", # Mount config.ini read-only
-        "-v", f"{DOCKER_VOLUME_NAME}:/app/data", # Mount data volume
-        HFGCSPY_DOCKER_IMAGE_NAME
+        "-v", f"{constants.DOCKER_VOLUME_NAME}:/app/data", # Mount data volume
+        constants.HFGCSPY_DOCKER_IMAGE_NAME
     ])
-    log_info(f"Docker container '{HFGCSPY_DOCKER_CONTAINER_NAME}' started.")
+    log_info(f"Docker container '{constants.HFGCSPY_DOCKER_CONTAINER_NAME}' started.")
 
 
 def configure_hfgcspy_app():
@@ -265,7 +275,7 @@ def configure_hfgcspy_app():
 
     config_obj.set('app', 'mode', 'standalone') # Ensure mode is standalone
     config_obj.set('app', 'database_path', "/app/data/hfgcspy.db") # Path inside Docker container
-    config_obj.set('app', 'internal_port', HFGCSpy_INTERNAL_PORT) # Internal port for Flask
+    config_obj.set('app', 'internal_port', constants.HFGCSpy_INTERNAL_PORT) # Internal port for Flask
 
     # These paths are now relative to the container's /app directory,
     # as they are accessed by the Python app *inside* the container.
@@ -399,10 +409,10 @@ def configure_apache2_webui():
         Require all granted
     </Directory>
 
-    Alias /hfgcspy-api/ http://127.0.0.1:{HFGCSPY_INTERNAL_PORT}/ # Proxy to Docker container's Flask API
+    Alias /hfgcspy-api/ http://127.0.0.1:{constants.HFGCSpy_INTERNAL_PORT}/ # Proxy to Docker container's Flask API
     <Location /hfgcspy-api/>
-        ProxyPass http://127.0.0.1:{HFGCSPY_INTERNAL_PORT}/
-        ProxyPassReverse http://127.0.0.1:{HFGCSPY_INTERNAL_PORT}/
+        ProxyPass http://127.0.0.1:{constants.HFGCSpy_INTERNAL_PORT}/
+        ProxyPassReverse http://127.0.0.1:{constants.HFGCSpy_INTERNAL_PORT}/
     </Location>
 
     # Alias for data directory (status.json, messages.json, recordings)
@@ -429,8 +439,8 @@ def configure_apache2_webui():
         Require all granted
     </Directory>
 
-    ProxyPass /hfgcspy-api/ http://127.0.0.1:{HFGCSPY_INTERNAL_PORT}/
-    ProxyPassReverse /hfgcspy-api/ http://127.0.0.1:{HFGCSPY_INTERNAL_PORT}/
+    ProxyPass /hfgcspy-api/ http://127.0.0.1:{constants.HFGCSpy_INTERNAL_PORT}/
+    ProxyPassReverse /hfgcspy-api/ http://127.0.0.1:{constants.HFGCSpy_INTERNAL_PORT}/
 
     # Alias for data directory
     Alias /hfgcspy_data "{HFGCSpy_DATA_DIR}"
@@ -479,7 +489,7 @@ def setup_systemd_service():
         hfgcs_user = "pi" 
         log_warn(f"SUDO_USER environment variable not set. Defaulting HFGCSpy service user to '{hfgcs_user}'. Please confirm this is correct or manually adjust.")
 
-    service_file_path = f"/etc/systemd/system/{HFGCSPY_SERVICE_NAME}"
+    service_file_path = f"/etc/systemd/system/{constants.HFGCSPY_SERVICE_NAME}"
     service_content = f"""
 [Unit]
 Description=HFGCSpy SDR Scanner and Parser (Docker Container)
@@ -487,9 +497,9 @@ After=network.target docker.service
 Requires=docker.service
 
 [Service]
-ExecStart=/usr/bin/docker start -a {HFGCSPY_DOCKER_CONTAINER_NAME}
-ExecStop=/usr/bin/docker stop {HFGCSPY_DOCKER_CONTAINER_NAME}
-ExecReload=/usr/bin/docker restart {HFGCSPY_DOCKER_CONTAINER_NAME}
+ExecStart=/usr/bin/docker start -a {constants.HFGCSPY_DOCKER_CONTAINER_NAME}
+ExecStop=/usr/bin/docker stop {constants.HFGCSPY_DOCKER_CONTAINER_NAME}
+ExecReload=/usr/bin/docker restart {constants.HFGCSPY_DOCKER_CONTAINER_NAME}
 Restart=always
 User={hfgcs_user} # User to run docker commands (must be in docker group)
 
@@ -502,19 +512,19 @@ WantedBy=multi-user.target
     run_command(["systemctl", "daemon-reload"])
     
     if ask_yes_no("Do you want HFGCSpy Docker container to start automatically at machine boot? (Recommended: Yes)"):
-        run_command(["systemctl", "enable", HFGCSPY_SERVICE_NAME])
+        run_command(["systemctl", "enable", constants.HFGCSPY_SERVICE_NAME])
         log_info("HFGCSpy Docker service enabled to start automatically at boot.")
     else:
-        run_command(["systemctl", "disable", HFGCSPY_SERVICE_NAME])
-        log_info(f"HFGCSpy Docker service will NOT start automatically at boot. You'll need to start it manually: sudo systemctl start {HFGCSPY_SERVICE_NAME}")
+        run_command(["systemctl", "disable", constants.HFGCSPY_SERVICE_NAME])
+        log_info(f"HFGCSpy Docker service will NOT start automatically at boot. You'll need to start it manually: sudo systemctl start {constants.HFGCSPY_SERVICE_NAME}")
 
     # Start the Docker container via systemd
-    run_command(["systemctl", "start", HFGCSPY_SERVICE_NAME])
+    run_command(["systemctl", "start", constants.HFGCSPY_SERVICE_NAME])
     log_info("HFGCSpy Docker service setup and started.")
 
 def update_hfgcspy_app_code():
     log_info("Stopping HFGCSpy Docker container for update...")
-    run_command(["systemctl", "stop", HFGCSPY_SERVICE_NAME], check_return=False)
+    run_command(["systemctl", "stop", constants.HFGCSPY_SERVICE_NAME], check_return=False)
     
     if not os.path.exists(HFGCSpy_APP_DIR):
         log_error(f"HFGCSpy application directory {HFGCSpy_APP_DIR} not found. Please run --install first.")
@@ -525,8 +535,8 @@ def update_hfgcspy_app_code():
     run_command(["git", "pull"])
     os.chdir(current_dir) 
     
-    log_info(f"Rebuilding Docker image '{HFGCSPY_DOCKER_IMAGE_NAME}' with latest code...")
-    run_command(f"docker build -t {HFGCSPY_DOCKER_IMAGE_NAME} {HFGCSpy_APP_DIR}", shell=True)
+    log_info(f"Rebuilding Docker image '{constants.HFGCSPY_DOCKER_IMAGE_NAME}' with latest code...")
+    run_command(f"docker build -t {constants.HFGCSPY_DOCKER_IMAGE_NAME} {HFGCSpy_APP_DIR}", shell=True)
 
     log_info(f"Re-copying web UI files to Apache web root: {WEB_ROOT_DIR}...")
     if os.path.exists(WEB_ROOT_DIR):
@@ -544,8 +554,8 @@ def update_hfgcspy_app_code():
     run_command(["chown", "-R", "www-data:www-data", WEB_ROOT_DIR])
     run_command(["chmod", "-R", "755", WEB_ROOT_DIR])
     
-    log_info(f"Restarting HFGCSpy Docker service {HFGCSPY_SERVICE_NAME}...")
-    run_command(["systemctl", "start", HFGCSPY_SERVICE_NAME])
+    log_info(f"Restarting HFGCSpy Docker service {constants.HFGCSPY_SERVICE_NAME}...")
+    run_command(["systemctl", "start", constants.HFGCSPY_SERVICE_NAME])
     log_info("HFGCSpy updated and restarted.")
     log_info("Remember to restart Apache2 if there were any issues or config changes: sudo systemctl restart apache2")
 
@@ -572,19 +582,19 @@ def check_sdr():
 
 
 def uninstall_hfgcspy():
-    log_warn(f"Stopping and disabling HFGCSpy Docker service {HFGCSPY_SERVICE_NAME}...")
-    run_command(["systemctl", "stop", HFGCSPY_SERVICE_NAME], check_return=False)
-    run_command(["systemctl", "disable", HFGCSPY_SERVICE_NAME], check_return=False)
-    if os.path.exists(f"/etc/systemd/system/{HFGCSPY_SERVICE_NAME}"):
-        os.remove(f"/etc/systemd/system/{HFGCSPY_SERVICE_NAME}")
+    log_warn(f"Stopping and disabling HFGCSpy Docker service {constants.HFGCSPY_SERVICE_NAME}...")
+    run_command(["systemctl", "stop", constants.HFGCSPY_SERVICE_NAME], check_return=False)
+    run_command(["systemctl", "disable", constants.HFGCSPY_SERVICE_NAME], check_return=False)
+    if os.path.exists(f"/etc/systemd/system/{constants.HFGCSPY_SERVICE_NAME}"):
+        os.remove(f"/etc/systemd/system/{constants.HFGCSPY_SERVICE_NAME}")
     run_command("systemctl daemon-reload", shell=True)
     
-    log_warn(f"Stopping and removing Docker container '{HFGCSPY_DOCKER_CONTAINER_NAME}'...")
-    run_command(f"docker stop {HFGCSPY_DOCKER_CONTAINER_NAME}", shell=True, check_return=False)
-    run_command(f"docker rm {HFGCSPY_DOCKER_CONTAINER_NAME}", shell=True, check_return=False)
+    log_warn(f"Stopping and removing Docker container '{constants.HFGCSPY_DOCKER_CONTAINER_NAME}'...")
+    run_command(f"docker stop {constants.HFGCSPY_DOCKER_CONTAINER_NAME}", shell=True, check_return=False)
+    run_command(f"docker rm {constants.HFGCSPY_DOCKER_CONTAINER_NAME}", shell=True, check_return=False)
 
-    log_warn(f"Removing Docker volume '{DOCKER_VOLUME_NAME}' (this will delete persistent data)...")
-    run_command(f"docker volume rm {DOCKER_VOLUME_NAME}", shell=True, check_return=False)
+    log_warn(f"Removing Docker volume '{constants.DOCKER_VOLUME_NAME}' (this will delete persistent data)...")
+    run_command(f"docker volume rm {constants.DOCKER_VOLUME_NAME}", shell=True, check_return=False)
 
     log_warn(f"Removing HFGCSpy application directory: {HFGCSpy_APP_DIR}...")
     if os.path.exists(HFGCSpy_APP_DIR):
@@ -630,7 +640,7 @@ def main():
     # This guarantees all global path variables are set to a baseline
     # using the module-level constants APP_DIR_DEFAULT and WEB_ROOT_DIR_DEFAULT.
     # This call must happen before any conditional logic that might use these globals
-    _set_global_paths_runtime(APP_DIR_DEFAULT, WEB_ROOT_DIR_DEFAULT) 
+    _set_global_paths_runtime(constants.APP_DIR_DEFAULT, constants.WEB_ROOT_DIR_DEFAULT) 
 
     # If not performing a fresh install, attempt to load paths from existing config.ini
     # This will override the defaults set above if a config is found.
@@ -645,7 +655,7 @@ def main():
 
     if args.install:
         check_root()
-        prompt_for_paths() # Removed prompt_for_paths() call for automated install
+        # Removed prompt_for_paths() call for automated install
         install_docker() # Install Docker first
         install_system_dependencies() # Install other system deps (rtl-sdr, apache2, etc.)
         clone_hfgcspy_app_code() # Clone app code and setup venv (on host)
@@ -657,9 +667,9 @@ def main():
     elif args.run:
         check_root() # Running main app requires root for SDR
         # This case is now for running the Docker container directly, not the Python script
-        log_info(f"Attempting to run HFGCSpy Docker container '{HFGCSPY_DOCKER_CONTAINER_NAME}' directly...")
-        log_info(f"To manage as a service, use 'sudo systemctl start {HFGCSPY_SERVICE_NAME}'.")
-        run_command(f"docker start -a {HFGCSPY_DOCKER_CONTAINER_NAME}", shell=True)
+        log_info(f"Attempting to run HFGCSpy Docker container '{constants.HFGCSPY_DOCKER_CONTAINER_NAME}' directly...")
+        log_info(f"To manage as a service, use 'sudo systemctl start {constants.HFGCSPY_SERVICE_NAME}'.")
+        run_command(f"docker start -a {constants.HFGCSPY_DOCKER_CONTAINER_NAME}", shell=True)
     elif args.stop:
         check_root()
         stop_hfgcspy()
