@@ -1,7 +1,7 @@
 # HFGCSpy/setup.py
 # Python-based installer for HFGCSpy application.
 # This script handles all installation, configuration, and service management.
-# Version: 2.2.12 # Version bump for corrected web_ui source path
+# Version: 2.2.13 # Version bump for Apache default site handling
 
 import os
 import sys
@@ -12,7 +12,7 @@ import re
 import argparse
 
 # --- Script Version ---
-__version__ = "2.2.12" # Updated version for corrected web_ui source path
+__version__ = "2.2.13" # Updated version for Apache default site handling
 
 # --- Configuration Constants (Defined directly in setup.py) ---
 # All constants are now embedded directly in this file to avoid import issues.
@@ -453,7 +453,7 @@ def configure_apache2_webui():
     </Directory>
 
     ProxyPass /hfgcspy-api/ http://127.0.0.1:{HFGCSPY_INTERNAL_PORT}/
-    ProxyPassReverse http://127.0.0.1:{HFGCSPY_INTERNAL_PORT}/
+    ProxyPassReverse /hfgcspy-api/ http://127.0.0.1:{HFGCSPY_INTERNAL_PORT}/
 
     # Alias for data directory
     Alias /hfgcspy_data "{HFGCSpy_DATA_DIR}"
@@ -486,7 +486,7 @@ def configure_apache2_webui():
     with open(apache_conf_path, "w") as f:
         f.write(apache_conf_content)
 
-    run_command(["a2dissite", "000-default.conf"], check_return=False)
+    # Removed the a2dissite 000-default.conf command as per user request
     run_command(["a2ensite", os.path.basename(apache_conf_path)])
     
     run_command(["systemctl", "restart", "apache2"])
