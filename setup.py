@@ -1,7 +1,7 @@
 # HFGCSpy/setup.py
 # Python-based installer for HFGCSpy application.
 # This script handles all installation, configuration, and service management.
-# Version: 1.2.17 # Version bump for constants file integration
+# Version: 2.0.0 # Major version bump for Dockerization
 
 import os
 import sys
@@ -26,7 +26,7 @@ except ImportError as e:
 
 
 # --- Script Version ---
-__version__ = "1.2.17" # Updated version
+__version__ = "2.0.0" # Updated version
 
 
 # --- Global Path Variables (Initialized to None, will be set by _set_global_paths_runtime) ---
@@ -34,7 +34,7 @@ __version__ = "1.2.17" # Updated version
 # They are declared here, and their concrete values (derived from defaults or user input)
 # will be assigned ONLY within the _set_global_paths_runtime function.
 HFGCSpy_APP_DIR = None 
-HFGCSpy_VENV_DIR = None
+HFGCSpy_VENV_DIR = None # Not used for host-side venv anymore, but kept for consistency
 HFGCSpy_CONFIG_FILE = None
 
 WEB_ROOT_DIR = None
@@ -68,6 +68,8 @@ def ask_yes_no(question):
 def run_command(command, check_return=True, capture_output=False, shell=False):
     log_info(f"Executing: {' '.join(command) if isinstance(command, list) else command}")
     try:
+        # Use shell=True for commands with pipes or redirects often found in apt/bash calls
+        # Use current sys.executable for python calls to ensure correct interpreter
         if isinstance(command, list) and (command[0] == sys.executable or command[0].endswith("/python3") or command[0].endswith("/pip")): 
              result = subprocess.run(command, check=check_return, capture_output=capture_output, text=True)
         else:
@@ -147,7 +149,7 @@ def _load_paths_from_config():
         _set_global_paths_runtime(APP_DIR_DEFAULT, WEB_ROOT_DIR_DEFAULT) # Ensure paths are set even if config not found
         return False
 
-# --- Installation Steps (Definitions moved to top to ensure availability) ---
+# --- Installation Steps ---
 
 def prompt_for_paths():
     log_info("Determining HFGCSpy installation paths:")
@@ -164,14 +166,33 @@ def prompt_for_paths():
     log_info(f"HFGCSpy application will be installed to: {HFGCSpy_APP_DIR}")
     log_info(f"HFGCSpy web UI will be hosted at: {WEB_ROOT_DIR}")
 
+def install_docker():
+    log_info("Installing Docker Engine...")
+    # Add Docker's official GPG key
+    run_command("sudo mkdir -p /etc/apt/keyrings", shell=True)
+    run_command("curl -fsSL https://download.docker.com/linux/debian/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg", shell=True)
+
+    # Set up the stable Docker repository
+    docker_repo_line = f"deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian $(lsb_release -cs) stable"
+    run_command(f"echo \"{docker_repo_line}\" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null", shell=True)
+    
+    run_command("apt update", shell=True)
+    run_command("apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin", shell=True)
+
+    log_info("Adding current user to 'docker' group to run Docker commands without sudo (requires logout/login)...")
+    current_user = os.getenv("SUDO_USER") or os.getlogin() # Get original user
+    run_command(f"usermod -aG docker {current_user}", shell=True)
+    log_info("Docker installed. Please log out and log back in, or reboot, for Docker group changes to take effect.")
+    log_info("You can then run 'docker run hello-world' to test Docker installation.")
+
+
 def install_system_dependencies():
     log_info("Updating package lists and installing core system dependencies...")
     run_command("apt update", shell=True)
     run_command([
         "apt", "install", "-y", 
-        "git", "python3", "python3-venv", "build-essential", 
-        "libusb-1.0-0-dev", "libatlas-base-dev", "libopenblas-dev", "net-tools", "apache2",
-        "apt-transport-https", "ca-certificates", "curl", "gnupg", "lsb-release"
+        "git", "python3", "python3-venv", "build-essential", # python3-pip, curl, gnupg, lsb-release already handled by Docker install
+        "libusb-1.0-0-dev", "libatlas-base-dev", "libopenblas-dev", "net-tools", "apache2"
     ])
 
     log_info("Installing rtl-sdr tools...")
@@ -195,7 +216,8 @@ def clone_and_setup_venv():
     else:
         run_command(["git", "clone", HFGCSpy_REPO, HFGCSpy_APP_DIR]) # HFGCSpy_REPO is global constant
     
-    log_info(f"Setting up Python virtual environment in {HFGCSpy_VENV_DIR} and installing dependencies...")
+    # Venv is primarily for host-side dev tools, not for Dockerized app runtime
+    log_info(f"Setting up Python virtual environment in {HFGCSpy_VENV_DIR} and installing dependencies (for host-side dev tools)...")
     run_command([sys.executable, "-m", "venv", HFGCSpy_VENV_DIR]) 
     pip_path = os.path.join(HFGCSpy_VENV_DIR, "bin", "pip")
     requirements_path = os.path.join(HFGCSpy_APP_DIR, "requirements.txt")
@@ -315,6 +337,7 @@ def configure_apache2_webui():
         shutil.rmtree(WEB_ROOT_DIR) 
     os.makedirs(WEB_ROOT_DIR, exist_ok=True)
     
+    # Copy contents of web_ui directory
     src_web_ui_dir = os.path.join(HFGCSpy_APP_DIR, "web_ui")
     for item in os.listdir(src_web_ui_dir):
         s = os.path.join(src_web_ui_dir, item)
@@ -391,9 +414,11 @@ def configure_apache2_webui():
         Require all granted
     </Directory>
 
-    # Proxy for HFGCSpy's internal Flask API (running in Docker)
-    ProxyPass /hfgcspy-api/ http://127.0.0.1:{HFGCSPY_INTERNAL_PORT}/
-    ProxyPassReverse /hfgcspy-api/ http://127.0.0.1:{HFGCSPY_INTERNAL_PORT}/
+    Alias /hfgcspy-api/ http://127.0.0.1:{HFGCSPY_INTERNAL_PORT}/ # Proxy to Docker container's Flask API
+    <Location /hfgcspy-api/>
+        ProxyPass http://127.0.0.1:{HFGCSPY_INTERNAL_PORT}/
+        ProxyPassReverse http://127.0.0.1:{HFGCSPY_INTERNAL_PORT}/
+    </Location>
 
     # Alias for data directory (status.json, messages.json, recordings)
     Alias /hfgcspy_data "{HFGCSPY_DATA_DIR}"
@@ -419,9 +444,8 @@ def configure_apache2_webui():
         Require all granted
     </Directory>
 
-    # Proxy for HFGCSpy's internal Flask API (running in Docker)
-    ProxyPass /hfgcspy-api/ https://127.0.0.1:{HFGCSPY_INTERNAL_PORT}/ # Use HTTPS for internal proxy if Apache is HTTPS
-    ProxyPassReverse /hfgcspy-api/ https://127.0.0.1:{HFGCSPY_INTERNAL_PORT}/
+    ProxyPass /hfgcspy-api/ http://127.0.0.1:{HFGCSPY_INTERNAL_PORT}/
+    ProxyPassReverse /hfgcspy-api/ http://127.0.0.1:{HFGCSPY_INTERNAL_PORT}/
 
     # Alias for data directory
     Alias /hfgcspy_data "{HFGCSpy_DATA_DIR}"
@@ -646,10 +670,7 @@ def main():
         log_info("HFGCSpy installation complete. Please consider rebooting your Raspberry Pi for full effect.")
     elif args.run:
         check_root() # Running main app requires root for SDR
-        # This case is now for running the Docker container directly, not the Python script
-        log_info(f"Attempting to run HFGCSpy Docker container '{HFGCSPY_DOCKER_CONTAINER_NAME}' directly...")
-        log_info(f"To manage as a service, use 'sudo systemctl start {HFGCSPY_SERVICE_NAME}'.")
-        run_command(f"docker start -a {HFGCSPY_DOCKER_CONTAINER_NAME}", shell=True)
+        run_command([sys.executable, os.path.join(HFGCSpy_APP_DIR, "hfgcs.py"), "--run"]) # Explicitly run hfgcs.py
     elif args.stop:
         check_root()
         stop_hfgcspy()
