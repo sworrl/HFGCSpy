@@ -1,7 +1,7 @@
 # HFGCSpy/setup.py
 # Python-based installer for HFGCSpy application.
 # This script handles all installation, configuration, and service management.
-# Version: 2.2.8 # Version bump for typo fix
+# Version: 2.2.10 # Version bump for web_ui FileNotFoundError diagnosis
 
 import os
 import sys
@@ -12,7 +12,7 @@ import re
 import argparse
 
 # --- Script Version ---
-__version__ = "2.2.8" # Updated version for typo fix
+__version__ = "2.2.10" # Updated version for web_ui FileNotFoundError diagnosis
 
 # --- Configuration Constants (Defined directly in setup.py) ---
 # All constants are now embedded directly in this file to avoid import issues.
@@ -44,7 +44,8 @@ HFGCSPY_CONFIG_JSON_PATH = None
 # --- Helper Functions ---
 
 def log_info(message):
-    print(f"\n\033[0;32mINFO: {message}\033[0m") # Green text for info
+    # Changed color to light green (bold green) for better visibility
+    print(f"\n\033[1;32mINFO: {message}\033[0m") # Light Green text for info
 
 def log_warn(message):
     print(f"\n\033[0;33mWARNING: {message}\033[0m") # Yellow text for warnings
@@ -206,11 +207,18 @@ def clone_hfgcspy_app_code(): # Renamed from clone_and_setup_venv
     
     run_command(["git", "clone", HFGCSPY_REPO, HFGCSpy_APP_DIR]) # HFGCSpy_REPO is global constant
     
+    # --- Diagnostic step: List contents after cloning ---
+    log_info(f"Verifying contents of cloned directory: {HFGCSpy_APP_DIR}")
+    run_command(["ls", "-l", HFGCSpy_APP_DIR], shell=False) # Use shell=False for direct execution
+    # --- End diagnostic step ---
+
     # Removed host-side venv setup and pip install. Dockerfile handles this.
     log_info("Python virtual environment and dependencies will be set up inside the Docker image.")
     return True # Indicate fresh clone
 
 def build_and_run_docker_container():
+    # Clear the terminal window before starting the build
+    os.system('clear') 
     log_info(f"Building Docker image '{HFGCSPY_DOCKER_IMAGE_NAME}' for HFGCSpy...")
     current_dir = os.getcwd()
     os.chdir(HFGCSpy_APP_DIR) # Change to app dir to build Dockerfile
@@ -322,8 +330,13 @@ def configure_apache2_webui():
         shutil.rmtree(WEB_ROOT_DIR) # Explicitly wipe for dev install
     os.makedirs(WEB_ROOT_DIR, exist_ok=True)
     
-    # Copy contents of web_ui directory
     src_web_ui_dir = os.path.join(HFGCSpy_APP_DIR, "web_ui")
+
+    # Explicitly check if the source web UI directory exists
+    if not os.path.exists(src_web_ui_dir):
+        log_error(f"Source web UI directory not found: {src_web_ui_dir}. "
+                  f"Ensure the HFGCSpy repository was cloned correctly and contains the 'web_ui' directory.")
+
     for item in os.listdir(src_web_ui_dir):
         s = os.path.join(src_web_ui_dir, item)
         d = os.path.join(WEB_ROOT_DIR, item)
