@@ -1,7 +1,7 @@
 # HFGCSpy/setup.py
 # Python-based installer for HFGCSpy application.
 # This script handles all installation, configuration, and service management.
-# Version: 2.0.12 # Version bump for robust constants import fix
+# Version: 2.0.13 # Version bump for critical constant definition order fix
 
 import os
 import sys
@@ -12,9 +12,22 @@ import re
 import argparse
 
 # --- Script Version ---
-__version__ = "2.0.12" # Updated version
+__version__ = "2.0.13" # Updated version
 
 # --- Configuration Constants (Defined at module top-level for absolute clarity and immediate availability) ---
+# THESE ARE THE TRUE CONSTANTS, always available from the very start of script execution.
+HFGCSPY_REPO = "https://github.com/sworrl/HFGCSpy.git" # IMPORTANT: Ensure this is correct!
+HFGCSPY_SERVICE_NAME = "hfgcspy_docker.service" # Service name is constant
+HFGCSPY_DOCKER_IMAGE_NAME = "hfgcspy_image"
+HFGCSPY_DOCKER_CONTAINER_NAME = "hfgcspy_app"
+HFGCSPY_INTERNAL_PORT = "8002" # Port for Flask/Gunicorn INSIDE Docker container
+
+# Default installation paths on the HOST system
+APP_DIR_DEFAULT = "/opt/hfgcspy" # Where the git repo is cloned on host
+WEB_ROOT_DIR_DEFAULT = "/var/www/html/hfgcspy" # Where static web UI files are copied
+DOCKER_VOLUME_NAME = "hfgcspy_data_vol" # Docker volume for SQLite DB and recordings
+
+# --- Global Path Variables (Initialized to None, will be set by _set_global_paths_runtime) ---
 # These are the variables that will hold the *actual* paths during script execution.
 # They are declared here, and their concrete values (derived from defaults or user input)
 # will be assigned ONLY within the _set_global_paths_runtime function.
