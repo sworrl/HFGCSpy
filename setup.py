@@ -1,7 +1,7 @@
 # HFGCSpy/setup.py
 # Python-based installer for HFGCSpy application.
 # This script handles all installation, configuration, and service management.
-# Version: 2.2.3 # Version bump for Docker existence check
+# Version: 2.2.4 # Version bump for typo fix
 
 import os
 import sys
@@ -12,7 +12,7 @@ import re
 import argparse
 
 # --- Script Version ---
-__version__ = "2.2.3" # Updated version for Docker existence check
+__version__ = "2.2.4" # Updated version for typo fix
 
 # --- Configuration Constants (Defined directly in setup.py) ---
 # All constants are now embedded directly in this file to avoid import issues.
@@ -267,14 +267,14 @@ def configure_hfgcspy_app():
 
     config_obj.set('app', 'mode', 'standalone') # Ensure mode is standalone
     config_obj.set('app', 'database_path', "/app/data/hfgcspy.db") # Path inside Docker container
-    config_obj.set('app', 'internal_port', HFGCSPY_INTERNAL_PORT) # Corrected typo here
+    config_obj.set('app', 'internal_port', HFGCSPY_INTERNAL_PORT) 
     
     # These paths are now relative to the container's /app directory,
     # as they are accessed by the Python app *inside* the container.
     # The Docker volume mount handles the host-side persistence.
     config_obj.set('app_paths', 'status_file', os.path.join(HFGCSpy_DATA_DIR, "status.json"))
     config_obj.set('app_paths', 'messages_file', os.path.join(HFGCSpy_DATA_DIR, "messages.json"))
-    config_obj.set('app_paths', 'recordings_dir', HFGCSpy_RECORDINGS_PATH) # Recordings dir is directly served
+    config_obj.set('app_paths', 'recordings_dir', HFGCSPY_RECORDINGS_PATH) # Corrected typo here
     config_obj.set('app_paths', 'config_json_file', os.path.join(HFGCSpy_DATA_DIR, "config.json"))
 
     if not config_obj.has_section('logging'):
@@ -433,7 +433,7 @@ def configure_apache2_webui():
     </Directory>
 
     ProxyPass /hfgcspy-api/ http://127.0.0.1:{HFGCSPY_INTERNAL_PORT}/
-    ProxyPassReverse /hfgcspy-api/ http://127.0.0.1:{HFGCSPY_INTERNAL_PORT}/
+    ProxyPassReverse http://127.0.0.1:{HFGCSPY_INTERNAL_PORT}/
 
     # Alias for data directory
     Alias /hfgcspy_data "{HFGCSpy_DATA_DIR}"
