@@ -1,7 +1,7 @@
 # HFGCSpy/setup.py
 # Python-based installer for HFGCSpy application.
 # This script handles all installation, configuration, and service management.
-# Version: 2.0.0 # Major version bump for Dockerization
+# Version: 2.0.2 # Version bump for fixing externally-managed-environment error definitively
 
 import os
 import sys
@@ -17,7 +17,7 @@ try:
     sys.path.append(os.path.dirname(os.path.abspath(__file__)))
     from constants import (
         HFGCSPY_REPO, HFGCSPY_SERVICE_NAME, HFGCSPY_DOCKER_IMAGE_NAME,
-        HFGCSPY_DOCKER_CONTAINER_NAME, HFGCSPY_INTERNAL_PORT,
+        HFGCSPY_DOCKER_CONTAINER_NAME, HFGCSpy_INTERNAL_PORT,
         APP_DIR_DEFAULT, WEB_ROOT_DIR_DEFAULT, DOCKER_VOLUME_NAME
     )
 except ImportError as e:
@@ -26,7 +26,7 @@ except ImportError as e:
 
 
 # --- Script Version ---
-__version__ = "2.0.0" # Updated version
+__version__ = "2.0.2" # Updated version
 
 
 # --- Global Path Variables (Initialized to None, will be set by _set_global_paths_runtime) ---
@@ -208,7 +208,7 @@ def install_system_dependencies():
     run_command("update-initramfs -u", shell=True)
     log_info("Conflicting kernel modules blacklisted. A reboot might be required for this to take effect.")
 
-def clone_and_setup_venv():
+def clone_hfgcspy_app_code(): # Renamed from clone_and_setup_venv
     log_info(f"Cloning HFGCSpy application from GitHub to {HFGCSpy_APP_DIR}...")
     if os.path.exists(HFGCSpy_APP_DIR):
         log_warn(f"HFGCSpy directory {HFGCSpy_APP_DIR} already exists. Skipping clone. Use --uninstall first if you want a fresh install.")
@@ -216,13 +216,8 @@ def clone_and_setup_venv():
     else:
         run_command(["git", "clone", HFGCSpy_REPO, HFGCSpy_APP_DIR]) # HFGCSpy_REPO is global constant
     
-    # Venv is primarily for host-side dev tools, not for Dockerized app runtime
-    log_info(f"Setting up Python virtual environment in {HFGCSpy_VENV_DIR} and installing dependencies (for host-side dev tools)...")
-    run_command([sys.executable, "-m", "venv", HFGCSpy_VENV_DIR]) 
-    pip_path = os.path.join(HFGCSpy_VENV_DIR, "bin", "pip")
-    requirements_path = os.path.join(HFGCSpy_APP_DIR, "requirements.txt")
-    run_command([pip_path, "install", "--upgrade", "pip"])
-    run_command([pip_path, "install", "-r", requirements_path])
+    # Removed host-side venv setup and pip install. Dockerfile handles this.
+    log_info("Python virtual environment and dependencies will be set up inside the Docker image.")
     return True # Indicate fresh clone
 
 def build_and_run_docker_container():
@@ -347,6 +342,7 @@ def configure_apache2_webui():
         else:
             shutil.copy2(s, d)
 
+    # Ensure Apache has correct ownership/permissions
     run_command(["chown", "-R", "www-data:www-data", WEB_ROOT_DIR])
     run_command(["chmod", "-R", "755", WEB_ROOT_DIR])
 
@@ -421,7 +417,7 @@ def configure_apache2_webui():
     </Location>
 
     # Alias for data directory (status.json, messages.json, recordings)
-    Alias /hfgcspy_data "{HFGCSPY_DATA_DIR}"
+    Alias /hfgcspy_data "{HFGCSpy_DATA_DIR}"
     <Directory "{HFGCSpy_DATA_DIR}">
         Options Indexes FollowSymLinks
         AllowOverride None
@@ -662,7 +658,7 @@ def main():
         prompt_for_paths() # Prompt to get user-defined paths if installing (updates globals)
         install_docker() # Install Docker first
         install_system_dependencies() # Install other system deps (rtl-sdr, apache2, etc.)
-        clone_and_setup_venv() # Clone app code and setup venv (on host)
+        clone_hfgcspy_app_code() # Clone app code and setup venv (on host)
         configure_hfgcspy_app() # Configure config.ini on host
         build_and_run_docker_container() # Build image and run container
         configure_apache2_webui() # Configure Apache to proxy to container
@@ -670,7 +666,10 @@ def main():
         log_info("HFGCSpy installation complete. Please consider rebooting your Raspberry Pi for full effect.")
     elif args.run:
         check_root() # Running main app requires root for SDR
-        run_command([sys.executable, os.path.join(HFGCSpy_APP_DIR, "hfgcs.py"), "--run"]) # Explicitly run hfgcs.py
+        # This case is now for running the Docker container directly, not the Python script
+        log_info(f"Attempting to run HFGCSpy Docker container '{HFGCSPY_DOCKER_CONTAINER_NAME}' directly...")
+        log_info(f"To manage as a service, use 'sudo systemctl start {HFGCSPY_SERVICE_NAME}'.")
+        run_command(f"docker start -a {HFGCSPY_DOCKER_CONTAINER_NAME}", shell=True)
     elif args.stop:
         check_root()
         stop_hfgcspy()
