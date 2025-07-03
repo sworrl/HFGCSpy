@@ -1,7 +1,7 @@
 # HFGCSpy/setup.py
 # Python-based installer for HFGCSpy application.
 # This script handles all installation, configuration, and service management.
-# Version: 2.2.4 # Version bump for typo fix
+# Version: 2.2.6 # Version bump for TypeError fix
 
 import os
 import sys
@@ -12,7 +12,7 @@ import re
 import argparse
 
 # --- Script Version ---
-__version__ = "2.2.4" # Updated version for typo fix
+__version__ = "2.2.6" # Updated version for TypeError fix
 
 # --- Configuration Constants (Defined directly in setup.py) ---
 # All constants are now embedded directly in this file to avoid import issues.
@@ -93,7 +93,7 @@ def _set_global_paths_runtime(app_dir_val, web_root_dir_val):
     This function should be called explicitly in main() after base paths are determined.
     """
     global HFGCSpy_APP_DIR, HFGCSpy_VENV_DIR, HFGCSpy_CONFIG_FILE
-    global WEB_ROOT_DIR, HFGCSpy_DATA_DIR, HFGCSpy_RECORDINGS_PATH, HFGCSpy_CONFIG_JSON_PATH
+    global WEB_ROOT_DIR, HFGCSpy_DATA_DIR, HFGCSPY_RECORDINGS_PATH, HFGCSPY_CONFIG_JSON_PATH
 
     HFGCSpy_APP_DIR = app_dir_val
     HFGCSpy_VENV_DIR = os.path.join(HFGCSpy_APP_DIR, "venv") # Still defined, but not used by Docker app directly
@@ -265,21 +265,21 @@ def configure_hfgcspy_app():
     if not config_obj.has_section('app'):
         config_obj.add_section('app')
 
-    config_obj.set('app', 'mode', 'standalone') # Ensure mode is standalone
-    config_obj.set('app', 'database_path', "/app/data/hfgcspy.db") # Path inside Docker container
-    config_obj.set('app', 'internal_port', HFGCSPY_INTERNAL_PORT) 
+    config_obj.set('app', 'mode', str('standalone')) # Ensure mode is standalone
+    config_obj.set('app', 'database_path', str("/app/data/hfgcspy.db")) # Path inside Docker container
+    config_obj.set('app', 'internal_port', str(HFGCSPY_INTERNAL_PORT)) 
     
     # These paths are now relative to the container's /app directory,
     # as they are accessed by the Python app *inside* the container.
     # The Docker volume mount handles the host-side persistence.
-    config_obj.set('app_paths', 'status_file', os.path.join(HFGCSpy_DATA_DIR, "status.json"))
-    config_obj.set('app_paths', 'messages_file', os.path.join(HFGCSpy_DATA_DIR, "messages.json"))
-    config_obj.set('app_paths', 'recordings_dir', HFGCSPY_RECORDINGS_PATH) # Corrected typo here
-    config_obj.set('app_paths', 'config_json_file', os.path.join(HFGCSpy_DATA_DIR, "config.json"))
+    config_obj.set('app_paths', 'status_file', str(os.path.join(HFGCSpy_DATA_DIR, "status.json")))
+    config_obj.set('app_paths', 'messages_file', str(os.path.join(HFGCSpy_DATA_DIR, "messages.json")))
+    config_obj.set('app_paths', 'recordings_dir', str(HFGCSPY_RECORDINGS_PATH)) # Corrected typo and added str() cast
+    config_obj.set('app_paths', 'config_json_file', str(os.path.join(HFGCSpy_DATA_DIR, "config.json")))
 
     if not config_obj.has_section('logging'):
         config_obj.add_section('logging')
-    config_obj.set('logging', 'log_file', "/app/logs/hfgcspy.log") # Log file inside container
+    config_obj.set('logging', 'log_file', str("/app/logs/hfgcspy.log")) # Log file inside container
 
     with open(HFGCSpy_CONFIG_FILE, 'w') as f:
         config_obj.write(f)
