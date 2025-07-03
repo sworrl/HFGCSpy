@@ -1,7 +1,7 @@
 # HFGCSpy/setup.py
 # Python-based installer for HFGCSpy application.
 # This script handles all installation, configuration, and service management.
-# Version: 2.2.13 # Version bump for Apache default site handling
+# Version: 2.2.14 # Version bump for Apache restart fix (SSL permissions) and improved error logging
 
 import os
 import sys
@@ -12,7 +12,7 @@ import re
 import argparse
 
 # --- Script Version ---
-__version__ = "2.2.13" # Updated version for Apache default site handling
+__version__ = "2.2.14" # Updated version for Apache restart fix
 
 # --- Configuration Constants (Defined directly in setup.py) ---
 # All constants are now embedded directly in this file to avoid import issues.
@@ -67,15 +67,18 @@ def ask_yes_no(question):
 def run_command(command, check_return=True, capture_output=False, shell=False):
     log_info(f"Executing: {' '.join(command) if isinstance(command, list) else command}")
     try:
-        if isinstance(command, list) and (command[0] == sys.executable or command[0].endswith("/python3") or command[0].endswith("/pip")): 
-             result = subprocess.run(command, check=check_return, capture_output=capture_output, text=True)
-        else:
-            result = subprocess.run(command, check=check_return, capture_output=capture_output, text=True, shell=shell)
+        # Always capture output to display on error, regardless of capture_output flag
+        result = subprocess.run(command, check=False, capture_output=True, text=True, shell=shell) 
+        
+        if check_return and result.returncode != 0:
+            log_error(f"Command failed with exit code {result.returncode}.\nStderr: {result.stderr.strip()}\nStdout: {result.stdout.strip()}")
+        
         if capture_output:
             return result.stdout.strip()
         return result
     except subprocess.CalledProcessError as e:
-        log_error(f"Command failed with exit code {e.returncode}.\nStderr: {e.stderr}\nStdout: {e.stdout}")
+        # This block might not be reached with check=False, but keep for robustness
+        log_error(f"Command failed with exit code {e.returncode}.\nStderr: {e.stderr.strip()}\nStdout: {e.stdout.strip()}")
     except FileNotFoundError:
         log_error(f"Command not found: {command[0] if isinstance(command, list) else command.split(' ')[0]}")
     except Exception as e:
@@ -336,9 +339,6 @@ def configure_apache2_webui():
     # Corrected source directory: copy directly from HFGCSpy_APP_DIR
     src_web_ui_dir = HFGCSpy_APP_DIR 
 
-    # Removed the explicit check for 'web_ui' subdirectory as it's no longer expected.
-    # The previous diagnostic `ls -l` in clone_hfgcspy_app_code is sufficient for verification.
-
     for item in os.listdir(src_web_ui_dir):
         # Skip core/ and data/ and logs/ directories as they are not web UI files
         if item in ["core", "data", "logs", "venv", ".git", ".github", "Dockerfile", "setup.py", "requirements.txt", "config.ini.template"]:
@@ -405,6 +405,14 @@ def configure_apache2_webui():
             log_info("No Let's Encrypt certificates found. HTTPS will not be automatically configured.")
     else:
         log_info(f"Let's Encrypt directory {letsencrypt_base_dir} not found. HTTPS will not be automatically configured.")
+
+    # If SSL is to be used, ensure www-data can read the certs
+    if use_ssl:
+        log_info(f"Ensuring Apache's www-data user can read SSL certificates for {ssl_domain}.")
+        # Add www-data user to ssl-cert group. This is a common way to grant access.
+        run_command("sudo usermod -aG ssl-cert www-data", shell=True, check_return=False)
+        # Note: A system reboot or 'sudo systemctl restart apache2' might be needed for group changes to take full effect.
+        # However, for cert reading, often just the service restart is enough if the user is already in the group.
 
 
     # Generate Apache config content
@@ -484,7 +492,8 @@ def configure_apache2_webui():
         log_info("HTTPS will not be configured automatically. Web UI will be available via HTTP only.")
 
     with open(apache_conf_path, "w") as f:
-        f.write(apache_conf_content)
+        config_obj.write(f) # Changed from apache_conf_content to config_obj.write(f)
+        f.write(apache_conf_content) # Write the content after config_obj
 
     # Removed the a2dissite 000-default.conf command as per user request
     run_command(["a2ensite", os.path.basename(apache_conf_path)])
