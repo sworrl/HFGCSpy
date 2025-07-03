@@ -1,7 +1,7 @@
 # HFGCSpy/setup.py
 # Python-based installer for HFGCSpy application.
 # This script handles all installation, configuration, and service management.
-# Version: 2.0.9 # Version bump for final constants import fix
+# Version: 2.0.10 # Version bump for __pycache__ cleanup and final import fix
 
 import os
 import sys
@@ -12,9 +12,21 @@ import re
 import argparse
 
 # --- Script Version ---
-__version__ = "2.0.9" # Updated version
+__version__ = "2.0.10" # Updated version
 
 # --- Configuration Constants (Defined at module top-level for absolute clarity and immediate availability) ---
+HFGCSPY_REPO = "https://github.com/sworrl/HFGCSpy.git" # IMPORTANT: Ensure this is correct!
+HFGCSPY_SERVICE_NAME = "hfgcspy_docker.service" # Service name is constant
+HFGCSPY_DOCKER_IMAGE_NAME = "hfgcspy_image"
+HFGCSPY_DOCKER_CONTAINER_NAME = "hfgcspy_app"
+HFGCSPY_INTERNAL_PORT = "8002" # Port for Flask/Gunicorn INSIDE Docker container
+
+# Default installation paths (THESE ARE THE TRUE CONSTANTS, always available)
+APP_DIR_DEFAULT = "/opt/hfgcspy" # Where the git repo is cloned on host
+WEB_ROOT_DIR_DEFAULT = "/var/www/html/hfgcspy" # Where static web UI files are copied
+DOCKER_VOLUME_NAME = "hfgcspy_data_vol" # Docker volume for SQLite DB and recordings
+
+# --- Global Path Variables (Initialized to None, will be set by _set_global_paths_runtime) ---
 # These are the variables that will hold the *actual* paths during script execution.
 # They are declared here, and their concrete values (derived from defaults or user input)
 # will be assigned ONLY within the _set_global_paths_runtime function.
@@ -26,31 +38,6 @@ WEB_ROOT_DIR = None
 HFGCSPY_DATA_DIR = None
 HFGCSPY_RECORDINGS_PATH = None
 HFGCSPY_CONFIG_JSON_PATH = None
-
-# --- Import constants from constants.py ---
-# This is the critical import. It must be able to find constants.py
-# and the names within it.
-try:
-    # Explicitly import the module and then access its attributes
-    import constants
-    HFGCSPY_REPO = constants.HFGCSPY_REPO
-    HFGCSPY_SERVICE_NAME = constants.HFGCSPY_SERVICE_NAME
-    HFGCSPY_DOCKER_IMAGE_NAME = constants.HFGCSPY_DOCKER_IMAGE_NAME
-    HFGCSPY_DOCKER_CONTAINER_NAME = constants.HFGCSPY_DOCKER_CONTAINER_NAME
-    HFGCSPY_INTERNAL_PORT = constants.HFGCSPY_INTERNAL_PORT
-    APP_DIR_DEFAULT = constants.APP_DIR_DEFAULT
-    WEB_ROOT_DIR_DEFAULT = constants.WEB_ROOT_DIR_DEFAULT
-    DOCKER_VOLUME_NAME = constants.DOCKER_VOLUME_NAME
-    
-    # Debugging: Print available names in constants module
-    print(f"DEBUG: Contents of constants module: {dir(constants)}")
-
-except ImportError as e:
-    print(f"ERROR: Could not import constants.py. Make sure it's in the same directory as setup.py. Error: {e}")
-    sys.exit(1)
-except AttributeError as e:
-    print(f"ERROR: Missing expected constant in constants.py. Error: {e}")
-    sys.exit(1)
 
 
 # --- Helper Functions ---
@@ -355,12 +342,7 @@ def configure_apache2_webui():
     run_command(["chmod", "-R", "755", WEB_ROOT_DIR])
 
     server_ip = run_command(["hostname", "-I"], capture_output=True).split()[0]
-    user_server_name = input(f"Enter the domain name or IP address to access HFGCSpy web UI (default: {server_ip}): ").strip()
-    server_name = user_server_name if user_server_name else server_ip
-    log_info(f"HFGCSpy web UI will be accessible via: {server_name}")
-
-    apache_conf_path = "/etc/apache2/sites-available/hfgcspy.conf"
-    
+    # Automated SSL certificate selection
     ssl_cert_path = ""
     ssl_key_path = ""
     use_ssl = False
@@ -376,8 +358,14 @@ def configure_apache2_webui():
             log_warn(f"Could not list Let's Encrypt domains: {e}. Proceeding without SSL auto-config.")
             le_domains = []
         
-        if le_domains:
-            log_info(f"Detected Let's Encrypt certificates for domains: {', '.join(le_domains)}")
+        if len(le_domains) == 1:
+            ssl_domain = le_domains[0]
+            ssl_cert_path = os.path.join(letsencrypt_base_dir, ssl_domain, "fullchain.pem")
+            ssl_key_path = os.path.join(letsencrypt_base_dir, ssl_domain, "privkey.pem")
+            use_ssl = True
+            log_info(f"Automatically selected single Let's Encrypt certificate for domain: {ssl_domain}")
+        elif len(le_domains) > 1:
+            log_info(f"Detected multiple Let's Encrypt certificates: {', '.join(le_domains)}")
             if ask_yes_no("Do you want to configure HFGCSpy web UI to use HTTPS with one of these certificates?"):
                 use_ssl = True
                 print("Available domains with certificates:")
@@ -525,7 +513,7 @@ WantedBy=multi-user.target
         log_info("HFGCSpy Docker service enabled to start automatically at boot.")
     else:
         run_command(["systemctl", "disable", HFGCSPY_SERVICE_NAME])
-        log_info(f"HFGCSpy service will NOT start automatically at boot. You'll need to start it manually: sudo systemctl start {HFGCSPY_SERVICE_NAME}")
+        log_info(f"HFGCSpy Docker service will NOT start automatically at boot. You'll need to start it manually: sudo systemctl start {HFGCSPY_SERVICE_NAME}")
 
     # Start the Docker container via systemd
     run_command(["systemctl", "start", HFGCSPY_SERVICE_NAME])
