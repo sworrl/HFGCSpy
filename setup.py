@@ -1,7 +1,7 @@
 # HFGCSpy/setup.py
 # Python-based installer for HFGCSpy application.
 # This script handles all installation, configuration, and service management.
-# Version: 2.0.2 # Version bump for fixing externally-managed-environment error definitively
+# Version: 2.0.4 # Version bump for critical constant definition fix
 
 import os
 import sys
@@ -26,7 +26,7 @@ except ImportError as e:
 
 
 # --- Script Version ---
-__version__ = "2.0.2" # Updated version
+__version__ = "2.0.4" # Updated version
 
 
 # --- Global Path Variables (Initialized to None, will be set by _set_global_paths_runtime) ---
@@ -68,8 +68,6 @@ def ask_yes_no(question):
 def run_command(command, check_return=True, capture_output=False, shell=False):
     log_info(f"Executing: {' '.join(command) if isinstance(command, list) else command}")
     try:
-        # Use shell=True for commands with pipes or redirects often found in apt/bash calls
-        # Use current sys.executable for python calls to ensure correct interpreter
         if isinstance(command, list) and (command[0] == sys.executable or command[0].endswith("/python3") or command[0].endswith("/pip")): 
              result = subprocess.run(command, check=check_return, capture_output=capture_output, text=True)
         else:
@@ -282,10 +280,10 @@ def configure_hfgcspy_app():
     # These paths are now relative to the container's /app directory,
     # as they are accessed by the Python app *inside* the container.
     # The Docker volume mount handles the host-side persistence.
-    config_obj.set('app_paths', 'status_file', "/app/data/hfgcspy_data/status.json") # Relative to /app/data
-    config_obj.set('app_paths', 'messages_file', "/app/data/hfgcspy_data/messages.json")
-    config_obj.set('app_paths', 'recordings_dir', "/app/data/recordings") # Recordings inside container
-    config_obj.set('app_paths', 'config_json_file', "/app/data/hfgcspy_data/config.json") # Config JSON inside container
+    config_obj.set('app_paths', 'status_file', os.path.join(HFGCSpy_DATA_DIR, "status.json"))
+    config_obj.set('app_paths', 'messages_file', os.path.join(HFGCSpy_DATA_DIR, "messages.json"))
+    config_obj.set('app_paths', 'recordings_dir', HFGCSpy_RECORDINGS_PATH) # Recordings dir is directly served
+    config_obj.set('app_paths', 'config_json_file', os.path.join(HFGCSpy_DATA_DIR, "config.json"))
 
     if not config_obj.has_section('logging'):
         config_obj.add_section('logging')
@@ -303,9 +301,9 @@ def configure_hfgcspy_app():
     run_command(["chmod", "-R", "u+rwX,go-w", HFGCSpy_APP_DIR]) 
 
     # Create web-accessible data directories on HOST and set permissions for Apache
-    log_info(f"Creating web-accessible data directories on host: {HFGCSPY_DATA_DIR} and {HFGCSPY_RECORDINGS_PATH}.")
-    os.makedirs(HFGCSPY_DATA_DIR, exist_ok=True)
-    os.makedirs(HFGCSPY_RECORDINGS_PATH, exist_ok=True)
+    log_info(f"Creating web-accessible data directories on host: {HFGCSpy_DATA_DIR} and {HFGCSpy_RECORDINGS_PATH}.")
+    os.makedirs(HFGCSpy_DATA_DIR, exist_ok=True)
+    os.makedirs(HFGCSpy_RECORDINGS_PATH, exist_ok=True)
     run_command(["chown", "-R", "www-data:www-data", HFGCSpy_DATA_DIR])
     run_command(["chmod", "-R", "775", HFGCSpy_DATA_DIR]) # Allow www-data read/write, others read/execute
 
@@ -565,6 +563,7 @@ def check_sdr():
     try:
         run_command(["which", "rtl_test"], check_return=True, capture_output=True)
         log_info("rtl_test command found. Running test...")
+        # Execute rtl_test and capture output for 5 seconds
         result = run_command(["timeout", "5s", "rtl_test", "-t", "-s", "1M", "-d", "0", "-r"], capture_output=True, text=True, check_return=False)
         
         if "Found" in result.stdout:
