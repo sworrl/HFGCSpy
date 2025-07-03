@@ -1,7 +1,8 @@
+#!/usr/bin/env python3
 # HFGCSpy/setup.py
 # Python-based installer for HFGCSpy application.
 # This script handles all installation, configuration, and service management.
-# Version: 2.0.5 # Version bump for constants file integration and final NameError fix
+# Version: 2.0.6 # Version bump for shebang and full git clone strategy
 
 import os
 import sys
@@ -11,10 +12,9 @@ import shutil
 import re
 import argparse
 
-# Import constants from the new constants.py file
+# Import constants from the same directory (constants.py will be cloned alongside setup.py)
 try:
-    # Add current directory to path to allow importing constants.py
-    # This is crucial when setup.py is run from a temporary directory
+    # Ensure current directory is in sys.path for direct import
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
     from constants import (
         HFGCSPY_REPO, HFGCSPY_SERVICE_NAME, HFGCSPY_DOCKER_IMAGE_NAME,
@@ -27,7 +27,7 @@ except ImportError as e:
 
 
 # --- Script Version ---
-__version__ = "2.0.5" # Updated version
+__version__ = "2.0.6" # Updated version
 
 
 # --- Global Path Variables (Initialized to None, will be set by _set_global_paths_runtime) ---
@@ -35,7 +35,7 @@ __version__ = "2.0.5" # Updated version
 # They are declared here, and their concrete values (derived from defaults or user input)
 # will be assigned ONLY within the _set_global_paths_runtime function.
 HFGCSpy_APP_DIR = None 
-HFGCSpy_VENV_DIR = None # Not used for host-side venv anymore, but kept for consistency
+HFGCSpy_VENV_DIR = None 
 HFGCSpy_CONFIG_FILE = None
 
 WEB_ROOT_DIR = None
@@ -69,10 +69,14 @@ def ask_yes_no(question):
 def run_command(command, check_return=True, capture_output=False, shell=False):
     log_info(f"Executing: {' '.join(command) if isinstance(command, list) else command}")
     try:
-        if isinstance(command, list) and (command[0] == sys.executable or command[0].endswith("/python3") or command[0].endswith("/pip")): 
+        # For shell commands that might need pipes or redirects, use shell=True
+        # For direct executable calls, list format is better.
+        # Check if command is a list (direct exec) or string (shell)
+        if isinstance(command, list) and not shell:
              result = subprocess.run(command, check=check_return, capture_output=capture_output, text=True)
-        else:
-            result = subprocess.run(command, check=check_return, capture_output=capture_output, text=True, shell=shell)
+        else: # If shell=True is forced or command is string
+            result = subprocess.run(command, check=check_return, capture_output=capture_output, text=True, shell=True)
+        
         if capture_output:
             return result.stdout.strip()
         return result
@@ -85,7 +89,7 @@ def run_command(command, check_return=True, capture_output=False, shell=False):
 
 def check_root():
     if os.geteuid() != 0:
-        log_error("This script must be run with sudo. Please run: sudo python3 setup.py --install")
+        log_error("This script must be run with sudo. Please run: sudo ./setup.py --install") # Updated command for user
 
 # --- Path Management Functions ---
 
@@ -243,7 +247,7 @@ def build_and_run_docker_container():
         "--name", HFGCSPY_DOCKER_CONTAINER_NAME,
         "--restart", "unless-stopped",
         "--device", "/dev/bus/usb:/dev/bus/usb", # Pass SDR device
-        "-p", f"127.0.0.1:{HFGCSPY_INTERNAL_PORT}:{HFGCSPY_INTERNAL_PORT}", # Map internal port to localhost on host
+        "-p", f"127.0.0.1:{HFGCSpy_INTERNAL_PORT}:{HFGCSpy_INTERNAL_PORT}", # Map internal port to localhost on host
         "-v", f"{HFGCSpy_CONFIG_FILE}:/app/config.ini:ro", # Mount config.ini read-only
         "-v", f"{DOCKER_VOLUME_NAME}:/app/data", # Mount data volume
         HFGCSPY_DOCKER_IMAGE_NAME
