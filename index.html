@@ -1,0 +1,573 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HFGCSpy</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.4.2/p5.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            background-color: #1a202c;
+            color: #e2e8f0;
+            font-family: 'Inter', sans-serif;
+        }
+        .message-card {
+            position: relative;
+            max-width: 800px;
+            transition: transform 0.3s;
+        }
+        .message-card:hover {
+            transform: scale(1.01);
+        }
+        .message-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.5);
+            z-index: 0;
+            border-radius: 0.5rem;
+        }
+        .message-content {
+            position: relative;
+            z-index: 1;
+            color: white;
+            text-shadow: 1px 1px 2px rgba(0,0,0,0.7);
+        }
+        .message-canvas, .waterfall-canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: -1;
+            filter: brightness(0.7);
+        }
+        .waterfall-container {
+            position: relative;
+        }
+        .waterfall-container::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.5);
+            z-index: 0;
+            border-radius: 0.5rem;
+        }
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0,0,0,0.7);
+            justify-content: center;
+            align-items: center;
+            z-index: 50;
+        }
+        .waterfall-img {
+            max-height: 300px;
+            width: 100%;
+            object-fit: contain;
+        }
+        .audio-controls {
+            max-width: 200px;
+            background: rgba(0, 0, 0, 0.5);
+            border-radius: 4px;
+            padding: 2px;
+        }
+        .action-buttons {
+            background: rgba(0, 0, 0, 0.5);
+            border-radius: 4px;
+            padding: 2px;
+        }
+        .decoded-text {
+            word-wrap: break-word;
+            white-space: normal;
+        }
+    </style>
+</head>
+<body class="min-h-screen bg-gray-900 text-gray-100">
+    <div class="container mx-auto p-4">
+        <h1 class="text-4xl font-bold text-center mb-6">HFGCSpy</h1>
+        <div class="bg-gray-800 p-4 rounded-lg shadow-lg mb-6">
+            <h2 class="text-xl font-semibold">System Status</h2>
+            <p>HFGCS Service: <span id="hfgcs-status">Loading...</span></p>
+            <p>S2 GhostNET Service: <span id="js8-status">Loading...</span></p>
+            <p>Local SDRs: <span id="sdr-status">Loading...</span></p>
+            <p>Online SDRs: <span id="online-sdr-status">Loading...</span></p>
+            <p>Current Frequency: <span id="current-frequency">0 MHz</span></p>
+            <p>Signal Power: <span id="signal-power">0 dB</span></p>
+            <button onclick="document.getElementById('options-modal').style.display='flex'" class="mt-2 bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">Options</button>
+        </div>
+        <div class="tabs flex space-x-2 mb-6">
+            <button class="tab px-4 py-2 bg-gray-700 rounded-lg text-white font-semibold active" data-tab="overview">Overview</button>
+            <div id="sdr-tabs"></div>
+        </div>
+        <div id="overview" class="tab-content">
+            <h2 class="text-2xl font-semibold mb-4">Local SDR Messages</h2>
+            <div id="local-messages" class="grid grid-cols-1 md:grid-cols-2 gap-4"></div>
+            <h2 class="text-2xl font-semibold mt-6 mb-4">Online SDR Messages</h2>
+            <div id="online-messages" class="grid grid-cols-1 md:grid-cols-2 gap-4"></div>
+        </div>
+        <div id="options-modal" class="modal">
+            <div class="modal-content bg-gray-800 p-6 rounded-lg w-full max-w-md">
+                <h2 class="text-xl font-semibold mb-4">HFGCSpy Options</h2>
+                <div class="mb-4">
+                    <h3 class="font-semibold">Appearance</h3>
+                    <label class="flex items-center">
+                        <input type="checkbox" id="dark-mode" class="mr-2" checked> Enable Dark Mode
+                    </label>
+                </div>
+                <div class="mb-4">
+                    <h3 class="font-semibold">SDR Service Control</h3>
+                    <label class="flex items-center">
+                        <input type="checkbox" id="hfgcs-service" class="mr-2" checked> Enable HFGCS Scanning
+                    </label>
+                    <label class="flex items-center">
+                        <input type="checkbox" id="js8-service" class="mr-2" checked> Enable S2 GhostNET (JS8)
+                    </label>
+                </div>
+                <div class="mb-4">
+                    <h3 class="font-semibold">Message Display</h3>
+                    <label>Messages per Page:
+                        <select id="messages-per-page" class="bg-gray-700 text-white rounded p-1">
+                            <option value="50">50</option>
+                            <option value="100">100</option>
+                            <option value="200">200</option>
+                            <option value="500">500</option>
+                            <option value="all">ALL</option>
+                        </select>
+                    </label>
+                </div>
+                <div class="mb-4">
+                    <h3 class="font-semibold">Local SDR Selection</h3>
+                    <div id="sdr-devices" class="bg-gray-700 p-2 rounded"></div>
+                </div>
+                <div class="mb-4">
+                    <h3 class="font-semibold">Add Online SDR</h3>
+                    <label>SDR URL: <input type="text" id="sdr-url" class="bg-gray-700 text-white rounded p-1 w-full"></label>
+                    <label>SDR Name: <input type="text" id="sdr-name" class="bg-gray-700 text-white rounded p-1 w-full"></label>
+                    <label>SDR Type: <select id="sdr-type" class="bg-gray-700 text-white rounded p-1">
+                        <option value="WebSDR">WebSDR</option>
+                        <option value="KiwiSDR">KiwiSDR</option>
+                    </select></label>
+                    <button onclick="controlOnlineSDR('', 'add')" class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 mt-2">Add SDR</button>
+                </div>
+                <button onclick="saveOptions()" class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">Save Options</button>
+            </div>
+        </div>
+        <div id="delete-confirm-modal" class="modal">
+            <div class="modal-content bg-gray-800 p-6 rounded-lg w-full max-w-sm">
+                <p class="mb-4">Are you sure you want to delete this message?</p>
+                <button onclick="confirmDelete()" class="bg-red-600 text-white px-4 py-2 rounded hover:bg-red-700 mr-2">Yes</button>
+                <button onclick="cancelDelete()" class="bg-gray-600 text-white px-4 py-2 rounded hover:bg-gray-700">No</button>
+            </div>
+        </div>
+    </div>
+    <script>
+        let currentDeleteMessage = null;
+
+        function drawWaveform(audioUrl, canvasId) {
+            new p5(sketch => {
+                let audio;
+                sketch.preload = () => {
+                    audio = sketch.loadSound(audioUrl, null, () => {
+                        sketch.background(0);
+                    });
+                };
+                sketch.setup = () => {
+                    const canvas = sketch.createCanvas(800, 100);
+                    canvas.id(canvasId);
+                    canvas.parent(canvasId);
+                    sketch.background(0);
+                    if (audio && audio.isLoaded()) {
+                        audio.play();
+                    }
+                };
+                sketch.draw = () => {
+                    sketch.background(0);
+                    if (audio && audio.isLoaded()) {
+                        let waveform = audio.getPeaks(800);
+                        sketch.stroke(255);
+                        sketch.noFill();
+                        sketch.beginShape();
+                        for (let i = 0; i < waveform.length; i++) {
+                            let x = sketch.map(i, 0, waveform.length, 0, 800);
+                            let y = sketch.map(waveform[i], -1, 1, 100, 0);
+                            sketch.vertex(x, y);
+                        }
+                        sketch.endShape();
+                    }
+                };
+            }, document.getElementById(canvasId));
+        }
+
+        function drawWaterfall(audioUrl, canvasId) {
+            new p5(sketch => {
+                let audio, fft;
+                sketch.preload = () => {
+                    audio = sketch.loadSound(audioUrl, null, () => {
+                        sketch.background(0);
+                    });
+                };
+                sketch.setup = () => {
+                    const canvas = sketch.createCanvas(800, 100);
+                    canvas.id(canvasId);
+                    canvas.parent(canvasId);
+                    sketch.background(0);
+                    fft = new p5.FFT(0.8, 256);
+                    if (audio && audio.isLoaded()) {
+                        audio.play();
+                        fft.setInput(audio);
+                    }
+                };
+                sketch.draw = () => {
+                    sketch.background(0);
+                    if (audio && audio.isLoaded()) {
+                        let spectrum = fft.analyze();
+                        for (let y = 0; y < 100; y++) {
+                            for (let x = 0; x < 256; x++) {
+                                let intensity = spectrum[x] * (1 - y / 100);
+                                sketch.stroke(intensity, intensity * 0.5, intensity * 0.2);
+                                sketch.point(x * 800 / 256, y);
+                            }
+                        }
+                    }
+                };
+            }, document.getElementById(canvasId));
+        }
+
+        function fetchMessages() {
+            fetch('/hfgcspy_data/messages.json')
+                .then(response => response.json())
+                .then(messages => {
+                    const localMessages = document.getElementById('local-messages');
+                    const onlineMessages = document.getElementById('online-messages');
+                    localMessages.innerHTML = '';
+                    onlineMessages.innerHTML = '';
+                    const sdrMessages = {};
+
+                    if (messages.length === 0) {
+                        localMessages.innerHTML = '<p class="text-gray-400">No local SDR messages available.</p>';
+                        onlineMessages.innerHTML = '<p class="text-gray-400">No online SDR messages available.</p>';
+                    }
+
+                    messages.forEach((msg, index) => {
+                        if (!sdrMessages[msg.source]) sdrMessages[msg.source] = [];
+                        sdrMessages[msg.source].push(msg);
+                        const canvasId = `canvas-${msg.table_name}-${msg.id}-${index}`;
+                        const waterfallId = `waterfall-${msg.table_name}-${msg.id}-${index}`;
+                        const card = document.createElement('div');
+                        card.className = 'message-card bg-gray-800 p-4 rounded-lg shadow-lg relative';
+                        card.innerHTML = `
+                            <div id="${canvasId}" style="height: 100px;"></div>
+                            <div class="message-content space-y-2">
+                                <p><strong>Type:</strong> ${msg.message_type}</p>
+                                <p><strong>Frequency:</strong> ${(msg.frequency_hz / 1000)} kHz</p>
+                                <p><strong>Timestamp:</strong> ${msg.timestamp}</p>
+                                <p><strong>Source:</strong> ${msg.source}</p>
+                                <p><strong>Callsign:</strong> ${msg.callsign}</p>
+                                <p><strong>Decoded Text:</strong> <span class="decoded-text">${msg.decoded_text}</span></p>
+                                <p><strong>Mode:</strong> ${msg.mode}</p>
+                                <p><strong>Notes:</strong> ${msg.notes}</p>
+                                <div class="flex space-x-2 justify-center mt-4">
+                                    <audio controls class="audio-controls">
+                                        <source src="/hfgcspy_data/${msg.raw_content_path}" type="audio/wav">
+                                        Your browser does not support the audio element.
+                                    </audio>
+                                    <a href="/hfgcspy_data/${msg.raw_content_path}" download class="action-buttons bg-blue-600 text-white px-2 py-1 rounded hover:bg-blue-700">Download</a>
+                                    <button onclick="deleteMessage(${msg.id}, '${msg.table_name}')" class="action-buttons bg-red-600 text-white px-2 py-1 rounded hover:bg-red-700${msg.table_name !== 'hfgcs_messages' ? ' opacity-50" disabled' : ''}">Delete</button>
+                                </div>
+                            </div>
+                            <div class="waterfall-container mt-4 rounded-lg">
+                                <div id="${waterfallId}" style="height: 100px;"></div>
+                            </div>
+                        `;
+                        if (msg.table_name === 'hfgcs_messages') {
+                            localMessages.appendChild(card);
+                        } else {
+                            onlineMessages.appendChild(card);
+                        }
+                        setTimeout(() => drawWaveform(`/hfgcspy_data/${msg.raw_content_path}`, canvasId), 0);
+                        setTimeout(() => drawWaterfall(`/hfgcspy_data/${msg.raw_content_path}`, waterfallId), 0);
+                    });
+
+                    Object.keys(sdrMessages).forEach(source => {
+                        const messagesDiv = document.getElementById(`messages-${source}`) || document.getElementById(`messages-online-${source}`);
+                        if (messagesDiv) {
+                            messagesDiv.innerHTML = '';
+                            if (sdrMessages[source].length === 0) {
+                                messagesDiv.innerHTML = '<p class="text-gray-400">No messages available for this SDR.</p>';
+                            } else {
+                                const grid = document.createElement('div');
+                                grid.className = 'grid grid-cols-1 md:grid-cols-2 gap-4';
+                                sdrMessages[source].forEach((msg, index) => {
+                                    const canvasId = `canvas-${msg.table_name}-${msg.id}-${source}-${index}`;
+                                    const waterfallId = `waterfall-${msg.table_name}-${msg.id}-${source}-${index}`;
+                                    const card = document.createElement('div');
+                                    card.className = 'message-card bg-gray-800 p-4 rounded-lg shadow-lg relative';
+                                    card.innerHTML = `
+                                        <div id="${canvasId}" style="height: 100px;"></div>
+                                        <div class="message-content space-y-2">
+                                            <p><strong>Type:</strong> ${msg.message_type}</p>
+                                            <p><strong>Frequency:</strong> ${(msg.frequency_hz / 1000)} kHz</p>
+                                            <p><strong>Timestamp:</strong> ${msg.timestamp}</p>
+                                            <p><strong>Source:</strong> ${msg.source}</p>
+                                            <p><strong>Callsign:</strong> ${msg.callsign}</p>
+                                            <p><strong>Decoded Text:</strong> <span class="decoded-text">${msg.decoded_text}</span></p>
+                                            <p><strong>Mode:</strong> ${msg.mode}</p>
+                                            <p><strong>Notes:</strong> ${msg.notes}</p>
+                                            <div class="flex space-x-2 justify-center mt-4">
+                                                <audio controls class="audio-controls">
+                                                    <source src="/hfgcspy_data/${msg.raw_content_path}" type="audio/wav">
+                                                    Your browser does not support the audio element.
+                                                </audio>
+                                                <a href="/hfgcspy_data/${msg.raw_content_path}" download class="action-buttons bg-blue-600 text-white px-2 py-1 rounded hover:bg-blue-700">Download</a>
+                                                <button onclick="deleteMessage(${msg.id}, '${msg.table_name}')" class="action-buttons bg-red-600 text-white px-2 py-1 rounded hover:bg-red-700${msg.table_name !== 'hfgcs_messages' ? ' opacity-50" disabled' : ''}">Delete</button>
+                                            </div>
+                                        </div>
+                                        <div class="waterfall-container mt-4 rounded-lg">
+                                            <div id="${waterfallId}" style="height: 100px;"></div>
+                                        </div>
+                                    `;
+                                    grid.appendChild(card);
+                                    setTimeout(() => drawWaveform(`/hfgcspy_data/${msg.raw_content_path}`, canvasId), 0);
+                                    setTimeout(() => drawWaterfall(`/hfgcspy_data/${msg.raw_content_path}`, waterfallId), 0);
+                                });
+                                messagesDiv.appendChild(grid);
+                            }
+                        }
+                    });
+                })
+                .catch(error => {
+                    console.error('Error fetching messages:', error);
+                    document.getElementById('local-messages').innerHTML = '<p class="text-gray-400">Error fetching messages. Please try again later.</p>';
+                    document.getElementById('online-messages').innerHTML = '<p class="text-gray-400">Error fetching messages. Please try again later.</p>';
+                });
+        }
+
+        function fetchStatus() {
+            fetch('/hfgcspy_data/status.json')
+                .then(response => response.json())
+                .then(status => {
+                    document.getElementById('hfgcs-status').textContent = status.hfgcs_service || 'Unknown';
+                    document.getElementById('js8-status').textContent = status.js8_service || 'Unknown';
+                    document.getElementById('sdr-status').innerHTML = Object.keys(status.sdr_devices || {}).length > 0
+                        ? Object.entries(status.sdr_devices).map(([id, state]) => `${id}: ${state}`).join(', ')
+                        : 'None detected';
+                    document.getElementById('online-sdr-status').innerHTML = Object.entries(status.online_sdrs || {})
+                        .map(([name, info]) => `${name}: ${info.status}`).join(', ') || 'None configured';
+                    document.getElementById('current-frequency').textContent = `${status.current_frequency || 0} MHz`;
+                    document.getElementById('signal-power').textContent = `${(status.signal_power || 0).toFixed(2)} dB`;
+                    updateSDRTabs(status.sdr_devices || {}, status.online_sdrs || {});
+                })
+                .catch(error => {
+                    console.error('Error fetching status:', error);
+                    document.getElementById('hfgcs-status').textContent = 'Error';
+                    document.getElementById('js8-status').textContent = 'Error';
+                    document.getElementById('sdr-status').textContent = 'Error';
+                    document.getElementById('online-sdr-status').textContent = 'Error';
+                    document.getElementById('current-frequency').textContent = '0 MHz';
+                    document.getElementById('signal-power').textContent = '0 dB';
+                    updateSDRTabs({}, {});
+                });
+        }
+
+        function showTab(tabId) {
+            document.querySelectorAll('.tab-content').forEach(tab => tab.style.display = 'none');
+            document.querySelectorAll('.tab').forEach(tab => tab.classList.remove('active'));
+            document.getElementById(tabId).style.display = 'block';
+            document.querySelector(`.tab[data-tab="${tabId}"]`).classList.add('active');
+        }
+
+        function updateSDRTabs(localSDRs, onlineSDRs) {
+            const tabsDiv = document.getElementById('sdr-tabs');
+            tabsDiv.innerHTML = '';
+            Object.keys(localSDRs).forEach(sdrId => {
+                const tab = document.createElement('button');
+                tab.className = 'tab px-4 py-2 bg-gray-700 rounded-lg text-white font-semibold';
+                tab.dataset.tab = `sdr-${sdrId}`;
+                tab.textContent = `Local SDR: ${sdrId}`;
+                tab.onclick = () => showTab(`sdr-${sdrId}`);
+                tabsDiv.appendChild(tab);
+                if (!document.getElementById(`sdr-${sdrId}`)) {
+                    const tabContent = document.createElement('div');
+                    tabContent.id = `sdr-${sdrId}`;
+                    tabContent.className = 'tab-content';
+                    tabContent.style.display = 'none';
+                    tabContent.innerHTML = `
+                        <h2 class="text-2xl font-semibold mb-4">Local SDR: ${sdrId}</h2>
+                        <div class="mb-4">
+                            <button onclick="controlSDR('${sdrId}', 'start')" class="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700 mr-2">Start</button>
+                            <button onclick="controlSDR('${sdrId}', 'stop')" class="bg-red-600 text-white px-4 py-2 rounded hover:bg-red-700 mr-2">Stop</button>
+                            <input type="number" id="freq-${sdrId}" placeholder="Frequency (MHz)" class="bg-gray-700 text-white rounded p-1 mr-2">
+                            <button onclick="setFrequency('${sdrId}')" class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">Set Frequency</button>
+                        </div>
+                        <img src="/hfgcspy_data/waterfall.png" class="waterfall-img mb-4" alt="Waterfall">
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4" id="messages-${sdrId}"></div>
+                    `;
+                    document.querySelector('.container').appendChild(tabContent);
+                }
+            });
+            Object.keys(onlineSDRs).forEach(sdrName => {
+                const tab = document.createElement('button');
+                tab.className = 'tab px-4 py-2 bg-gray-700 rounded-lg text-white font-semibold';
+                tab.dataset.tab = `online-sdr-${sdrName}`;
+                tab.textContent = `Online SDR: ${sdrName}`;
+                tab.onclick = () => showTab(`online-sdr-${sdrName}`);
+                tabsDiv.appendChild(tab);
+                if (!document.getElementById(`online-sdr-${sdrName}`)) {
+                    const tabContent = document.createElement('div');
+                    tabContent.id = `online-sdr-${sdrName}`;
+                    tabContent.className = 'tab-content';
+                    tabContent.style.display = 'none';
+                    tabContent.innerHTML = `
+                        <h2 class="text-2xl font-semibold mb-4">Online SDR: ${sdrName}</h2>
+                        <div class="mb-4">
+                            <button onclick="controlOnlineSDR('${sdrName}', 'remove')" class="bg-red-600 text-white px-4 py-2 rounded hover:bg-red-700">Remove SDR</button>
+                        </div>
+                        <img src="/hfgcspy_data/waterfall.png" class="waterfall-img mb-4" alt="Waterfall">
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4" id="messages-online-${sdrName}"></div>
+                    `;
+                    document.querySelector('.container').appendChild(tabContent);
+                }
+            });
+            fetchMessages();
+        }
+
+        function controlSDR(sdrId, action) {
+            fetch('/control_sdr', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({action, sdr_id: sdrId})
+            })
+                .then(response => response.json())
+                .then(data => {
+                    alert(data.message);
+                    fetchStatus();
+                })
+                .catch(error => alert('Error: ' + error));
+        }
+
+        function setFrequency(sdrId) {
+            const frequency = document.getElementById(`freq-${sdrId}`).value;
+            if (!frequency) return alert('Please enter a frequency');
+            fetch('/control_sdr', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({action: 'set_frequency', sdr_id: sdrId, frequency})
+            })
+                .then(response => response.json())
+                .then(data => {
+                    alert(data.message);
+                    fetchStatus();
+                })
+                .catch(error => alert('Error: ' + error));
+        }
+
+        function controlOnlineSDR(sdrName, action) {
+            if (action === 'add') {
+                const sdrUrl = document.getElementById('sdr-url').value;
+                const sdrName = document.getElementById('sdr-name').value;
+                const sdrType = document.getElementById('sdr-type').value;
+                if (!sdrUrl || !sdrName) return alert('Please enter SDR URL and name');
+                fetch('/control_online_sdr', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({action, sdr_name: sdrName, sdr_url: sdrUrl, sdr_type: sdrType})
+                })
+                    .then(response => response.json())
+                    .then(data => {
+                        alert(data.message);
+                        document.getElementById('options-modal').style.display = 'none';
+                        fetchStatus();
+                    })
+                    .catch(error => alert('Error: ' + error));
+            } else {
+                fetch('/control_online_sdr', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({action, sdr_name: sdrName})
+                })
+                    .then(response => response.json())
+                    .then(data => {
+                        alert(data.message);
+                        fetchStatus();
+                    })
+                    .catch(error => alert('Error: ' + error));
+            }
+        }
+
+        function deleteMessage(id, tableName) {
+            if (tableName !== 'hfgcs_messages') {
+                alert('Delete disabled for online SDR messages.');
+                return;
+            }
+            currentDeleteMessage = {id, tableName};
+            document.getElementById('delete-confirm-modal').style.display = 'flex';
+        }
+
+        function confirmDelete() {
+            if (currentDeleteMessage) {
+                fetch('/delete_message', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(currentDeleteMessage)
+                })
+                    .then(response => response.json())
+                    .then(data => {
+                        alert(data.message);
+                        fetchMessages();
+                    })
+                    .catch(error => alert('Error: ' + error));
+            }
+            document.getElementById('delete-confirm-modal').style.display = 'none';
+            currentDeleteMessage = null;
+        }
+
+        function cancelDelete() {
+            document.getElementById('delete-confirm-modal').style.display = 'none';
+            currentDeleteMessage = null;
+        }
+
+        function saveOptions() {
+            const hfgcsEnabled = document.getElementById('hfgcs-service').checked;
+            const js8Enabled = document.getElementById('js8-service').checked;
+            fetch('/control_sdr', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({action: 'toggle_hfgcs', enabled: hfgcsEnabled})
+            }).then(() => fetch('/control_sdr', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({action: 'toggle_js8', enabled: js8Enabled})
+            })).then(() => {
+                alert('Options saved');
+                document.getElementById('options-modal').style.display = 'none';
+                fetchStatus();
+            }).catch(error => alert('Error: ' + error));
+        }
+
+        // Initialize
+        fetchStatus();
+        fetchMessages();
+        setInterval(fetchStatus, 5000);
+        setInterval(fetchMessages, 5000);
+        document.getElementById('dark-mode').addEventListener('change', () => {
+            document.body.classList.toggle('bg-gray-100', !document.getElementById('dark-mode').checked);
+            document.body.classList.toggle('text-gray-900', !document.getElementById('dark-mode').checked);
+            document.body.classList.toggle('bg-gray-900', document.getElementById('dark-mode').checked);
+            document.body.classList.toggle('text-gray-100', document.getElementById('dark-mode').checked);
+        });
+        document.getElementById('options-modal').style.display = 'none';
+    </script>
+</body>
+</html>
