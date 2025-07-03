@@ -1,7 +1,7 @@
 # HFGCSpy/setup.py
 # Python-based installer for HFGCSpy application.
 # This script handles all installation, configuration, and service management.
-# Version: 2.2.10 # Version bump for web_ui FileNotFoundError diagnosis
+# Version: 2.2.11 # Version bump for enhanced web_ui FileNotFoundError diagnosis
 
 import os
 import sys
@@ -12,7 +12,7 @@ import re
 import argparse
 
 # --- Script Version ---
-__version__ = "2.2.10" # Updated version for web_ui FileNotFoundError diagnosis
+__version__ = "2.2.11" # Updated version for enhanced web_ui FileNotFoundError diagnosis
 
 # --- Configuration Constants (Defined directly in setup.py) ---
 # All constants are now embedded directly in this file to avoid import issues.
@@ -210,7 +210,13 @@ def clone_hfgcspy_app_code(): # Renamed from clone_and_setup_venv
     # --- Diagnostic step: List contents after cloning ---
     log_info(f"Verifying contents of cloned directory: {HFGCSpy_APP_DIR}")
     run_command(["ls", "-l", HFGCSpy_APP_DIR], shell=False) # Use shell=False for direct execution
-    # --- End diagnostic step ---
+    
+    # Explicitly check for web_ui immediately after cloning
+    expected_web_ui_path = os.path.join(HFGCSpy_APP_DIR, "web_ui")
+    if not os.path.exists(expected_web_ui_path):
+        log_error(f"CRITICAL: 'web_ui' directory not found in cloned repository at {expected_web_ui_path}. "
+                  f"The git clone might have failed or the repository structure is unexpected.")
+    # --- End enhanced diagnostic and validation ---
 
     # Removed host-side venv setup and pip install. Dockerfile handles this.
     log_info("Python virtual environment and dependencies will be set up inside the Docker image.")
@@ -335,7 +341,7 @@ def configure_apache2_webui():
     # Explicitly check if the source web UI directory exists
     if not os.path.exists(src_web_ui_dir):
         log_error(f"Source web UI directory not found: {src_web_ui_dir}. "
-                  f"Ensure the HFGCSpy repository was cloned correctly and contains the 'web_ui' directory.")
+                  f"This indicates a problem during the git clone step or repository structure.")
 
     for item in os.listdir(src_web_ui_dir):
         s = os.path.join(src_web_ui_dir, item)
