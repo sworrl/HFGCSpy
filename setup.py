@@ -1,7 +1,7 @@
 # HFGCSpy/setup.py
 # Python-based installer for HFGCSpy application.
 # This script handles all installation, configuration, and service management.
-# Version: 2.2.18 # Version bump for Apache configtest, Docker status, and connection strings
+# Version: 2.2.19 # Version bump for Apache Alias directive fix
 
 import os
 import sys
@@ -12,7 +12,7 @@ import re
 import argparse
 
 # --- Script Version ---
-__version__ = "2.2.18" # Updated version for Apache configtest, Docker status, and connection strings
+__version__ = "2.2.19" # Updated version for Apache Alias directive fix
 
 # --- Configuration Constants (Defined directly in setup.py) ---
 # All constants are now embedded directly in this file to avoid import issues.
@@ -432,13 +432,6 @@ def configure_apache2_webui():
         Require all granted
     </Directory>
 
-    Alias /hfgcspy_data "{HFGCSpy_DATA_DIR}"
-    <Directory "{HFGCSpy_DATA_DIR}">
-        Options Indexes FollowSymLinks
-        AllowOverride None
-        Require all granted
-    </Directory>
-
     ProxyPass /hfgcspy-api/ http://127.0.0.1:{HFGCSPY_INTERNAL_PORT}/
     ProxyPassReverse /hfgcspy-api/ http://127.0.0.1:{HFGCSPY_INTERNAL_PORT}/
 
@@ -453,13 +446,6 @@ def configure_apache2_webui():
     DocumentRoot {WEB_ROOT_DIR}
 
     <Directory {WEB_ROOT_DIR}>
-        Options Indexes FollowSymLinks
-        AllowOverride None
-        Require all granted
-    </Directory>
-
-    Alias /hfgcspy_data "{HFGCSpy_DATA_DIR}"
-    <Directory "{HFGCSpy_DATA_DIR}">
         Options Indexes FollowSymLinks
         AllowOverride None
         Require all granted
@@ -493,6 +479,10 @@ def configure_apache2_webui():
 
     run_command(["a2ensite", os.path.basename(apache_conf_path)])
     
+    # Test Apache configuration before restarting
+    log_info("Testing Apache configuration...")
+    run_command(["apachectl", "configtest"], check_return=True) # Ensure this command checks for errors
+
     run_command(["systemctl", "restart", "apache2"])
     log_info("Apache2 configured and restarted to serve HFGCSpy web UI.")
     log_info(f"Access HFGCSpy at http://{server_ip}/hfgcspy (and https://{ssl_domain if ssl_domain else server_ip}/hfgcspy if SSL was configured).")
