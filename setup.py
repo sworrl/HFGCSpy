@@ -1,7 +1,7 @@
 # HFGCSpy/setup.py
 # Python-based installer for HFGCSpy application.
 # This script handles all installation, configuration, and service management.
-# Version: 2.2.40 # Version bump for forcing Docker pip install layer rebuild
+# Version: 2.2.40 # Version bump for integrated SDR troubleshooting
 
 import os
 import sys
@@ -13,7 +13,7 @@ import argparse
 import time # Import time module for sleep
 
 # --- Script Version ---
-__version__ = "2.2.40" # Updated version for forcing Docker pip install layer rebuild
+__version__ = "2.2.40" # Updated version for integrated SDR troubleshooting
 
 # --- Configuration Constants (Defined directly in setup.py) ---
 # All constants are now embedded directly in this file to avoid import issues.
@@ -168,6 +168,159 @@ def _load_paths_from_config():
 
 # --- Installation Steps ---
 
+def diagnose_and_fix_sdr_host():
+    log_info("Starting host-level SDR diagnostic and fix process.")
+    
+    # --- Initial SDR Hardware Detection on Host ---
+    log_section "Initial SDR Hardware Detection on Host"
+    log_info "Checking if SDR is detected by USB (lsusb)."
+    run_command(["lsusb"])
+
+    log_info "Running initial rtl_test -t to confirm 'PLL not locked!' status."
+    rtl_test_result = run_command(["rtl_test", "-t"], capture_output=True, check_return=False)
+    
+    sdr_working_initially = True
+    if "PLL not locked!" in rtl_test_result.stdout or "No devices found" in rtl_test_result.stdout:
+        sdr_working_initially = False
+        log_warn "Initial rtl_test reported problems ('PLL not locked!' or 'No devices found'). Attempting to fix."
+    else:
+        log_success "Initial rtl_test ran successfully. SDR appears to be working on host."
+        return True # SDR is working, no need to proceed with fixes
+
+    log_section "Checking dmesg for recent SDR-related Kernel Messages"
+    log_info "Looking for messages from the last 50 lines."
+    run_command(["dmesg", "|", "tail", "-n", "50", "|", "grep", "-i", "rtl"], shell=True, check_return=False)
+    run_command(["dmesg", "|", "tail", "-n", "50", "|", "grep", "-i", "dvb"], shell=True, check_return=False)
+
+    log_section "Thorough Purge and Alternative Reinstallation of rtl-sdr Tools and Libraries"
+    log_info "Purging existing rtl-sdr packages and development libraries."
+    run_command(["sudo", "apt-get", "remove", "--purge", "rtl-sdr", "librtlsdr-dev", "-y"], check_return=False)
+    run_command(["sudo", "apt", "autoremove", "-y"])
+
+    log_info "Updating package lists."
+    run_command(["sudo", "apt", "update", "-y"])
+
+    log_info "Installing build dependencies for rtl-sdr-blog."
+    run_command(["sudo", "apt", "install", "cmake", "build-essential", "pkg-config", "debhelper", "-y"])
+
+    log_info "Cloning rtl-sdr-blog repository."
+    if os.path.exists("rtl-sdr-blog"):
+        log_warn "rtl-sdr-blog directory already exists. Removing and re-cloning."
+        shutil.rmtree("rtl-sdr-blog")
+    run_command(["git", "clone", "https://github.com/rtlsdrblog/rtl-sdr-blog"])
+
+    log_info "Building Debian packages from rtl-sdr-blog source."
+    current_dir = os.getcwd()
+    os.chdir("rtl-sdr-blog")
+    build_result = run_command(["sudo", "dpkg-buildpackage", "-b", "--no-sign"], check_return=False)
+    if build_result.returncode != 0:
+        log_error("Failed to build rtl-sdr-blog packages. Check build output above for details.")
+    os.chdir(current_dir)
+
+    log_info "Installing the newly built Debian packages."
+    deb_files = [f for f in os.listdir(".") if f.endswith(".deb") and ("librtlsdr0" in f or "librtlsdr-dev" in f or "rtl-sdr" in f)]
+    if not deb_files:
+        log_error("No .deb packages found after building rtl-sdr-blog. Build might have failed.")
+    else:
+        install_deb_result = run_command(["sudo", "dpkg", "-i"] + deb_files, check_return=False)
+        if install_deb_result.returncode != 0:
+            log_error("Failed to install some .deb packages. Check output above.")
+
+    log_info "Cleaning up rtl-sdr-blog source directory."
+    if os.path.exists("rtl-sdr-blog"):
+        shutil.rmtree("rtl-sdr-blog")
+
+    log_section "Verifying and Reloading Kernel Module Blacklisting"
+    BLACKLIST_FILE="/etc/modprobe.d/blacklist-rtl.conf"
+    log_info "Checking content of ${BLACKLIST_FILE}."
+    if os.path.exists(BLACKLIST_FILE):
+        run_command(["cat", BLACKLIST_FILE])
+        with open(BLACKLIST_FILE, 'r') as f:
+            content = f.read()
+            if not ("blacklist dvb_usb_rtl28xxu" in content and \
+                    "blacklist rtl2832" in content and \
+                    "blacklist rtl2830" in content):
+                log_warn "Blacklist file exists but might be incomplete. Appending missing lines."
+                run_command(["echo", "blacklist dvb_usb_rtl28xxu"], shell=True, check_return=False) # Use tee for actual write
+                run_command(["echo", "blacklist rtl2832"], shell=True, check_return=False)
+                run_command(["echo", "blacklist rtl2830"], shell=True, check_return=False)
+                # Corrected tee usage
+                subprocess.run(['sudo', 'tee', '-a', BLACKLIST_FILE], input="blacklist dvb_usb_rtl28xxu\nblacklist rtl2832\nblacklist rtl2830\n", text=True, check=True)
+            else:
+                log_info "Blacklist file appears correctly configured."
+    else:
+        log_warn "${BLACKLIST_FILE} not found. Creating it with necessary blacklists."
+        subprocess.run(['sudo', 'tee', BLACKLIST_FILE], input="blacklist dvb_usb_rtl28xxu\nblacklist rtl2832\nblacklist rtl2830\n", text=True, check=True)
+
+    log_info "Updating kernel module dependencies (depmod -a) and initramfs (update-initramfs -u)."
+    run_command(["sudo", "depmod", "-a"])
+    run_command(["sudo", "update-initramfs", "-u"])
+
+    log_section "Verifying and Reloading udev Rules for Device Permissions"
+    UDEV_RULES_DIR="/etc/udev/rules.d/"
+    UDEV_RULES_FILE="${UDEV_RULES_DIR}20-rtlsdr.rules" # Common name, sometimes 99-rtl-sdr.rules
+
+    log_info "Checking existence and permissions of /etc/udev/."
+    run_command(["ls", "-ld", "/etc/udev/"], check_return=False)
+    log_info "Checking existence and permissions of ${UDEV_RULES_DIR}."
+    run_command(["ls", "-ld", UDEV_RULES_DIR], check_return=False)
+
+
+    # Ensure the udev rules directory exists
+    if not os.path.isdir(UDEV_RULES_DIR):
+        log_warn "udev rules directory ${UDEV_RULES_DIR} not found. Attempting to create it."
+        run_command(["sudo", "mkdir", "-p", UDEV_RULES_DIR])
+    else:
+        log_info "udev rules directory ${UDEV_RULES_DIR} exists."
+
+    log_info "Checking for udev rules file: ${UDEV_RULES_FILE}."
+
+    # Check if the common udev rules file exists or create a generic one
+    if not os.path.exists(UDEV_RULES_FILE) and not os.path.exists(os.path.join(UDEV_RULES_DIR, "99-rtl-sdr.rules")):
+        log_warn "No standard RTL-SDR udev rules file found. Creating a generic one."
+        log_info "Creating ${UDEV_RULES_FILE} with basic read/write permissions for common RTL-SDRs."
+        udev_rules_content = """SUBSYSTEM=="usb", ATTRS{idVendor}=="0bda", ATTRS{idProduct}=="2832", MODE="0666", GROUP="plugdev", TAG+="uaccess"
+SUBSYSTEM=="usb", ATTRS{idVendor}=="0bda", ATTRS{idProduct}=="2838", MODE="0666", GROUP="plugdev", TAG+="uaccess"
+""" # Add other common RTL-SDR dongle IDs if needed
+        subprocess.run(['sudo', 'tee', UDEV_RULES_FILE], input=udev_rules_content, text=True, check=True)
+        log_info "Created a new udev rules file."
+    else:
+        log_info "RTL-SDR udev rules file already exists. Content (if found):"
+        run_command(["cat", UDEV_RULES_FILE], check_return=False)
+        run_command(["cat", os.path.join(UDEV_RULES_DIR, "99-rtl-sdr.rules")], check_return=False)
+
+    log_info "Reloading udev rules and triggering device re-scan."
+    run_command(["sudo", "udevadm", "control", "--reload-rules"])
+    run_command(["sudo", "udevadm", "trigger"])
+
+    log_section "Verifying Current User's Group Membership"
+    CURRENT_USER = os.getenv("SUDO_USER") or os.getlogin()
+    log_info(f"Checking groups for current user ({CURRENT_USER}).")
+    user_groups_output = run_command(["groups", CURRENT_USER], capture_output=True)
+    print(user_groups_output)
+
+    if "plugdev" not in user_groups_output:
+        log_warn f"User '{CURRENT_USER}' is NOT in the 'plugdev' group."
+        log_info f"Attempting to add user '{CURRENT_USER}' to the 'plugdev' group."
+        run_command(["sudo", "usermod", "-aG", "plugdev", CURRENT_USER])
+        log_warn "IMPORTANT: Please LOG OUT and LOG BACK IN (or REBOOT) for the group changes to take full effect!"
+    else:
+        log_info f"User '{CURRENT_USER}' is already in the 'plugdev' group."
+
+    log_section "Final Test After Host-Level Fixes"
+    log_info "Running rtl_test -t again to confirm SDR is now working on the host."
+    final_rtl_test_result = run_command(["rtl_test", "-t"], capture_output=True, check_return=False)
+    print(final_rtl_test_result.stdout)
+    print(final_rtl_test_result.stderr)
+
+    if "PLL not locked!" in final_rtl_test_result.stdout or "No devices found" in final_rtl_test_result.stdout:
+        log_error("SDR troubleshooting failed: rtl_test still reported problems after fixes. "
+                  "Please review the output carefully. A fresh OS reinstallation might be necessary for this Raspberry Pi.")
+    else:
+        log_success "SDR appears to be working on the host now!"
+        log_warn "A system REBOOT is still highly recommended to ensure all kernel module and user group changes are fully applied."
+        return True # SDR is now working on the host
+
 def install_docker():
     log_info("Checking if Docker Engine is already installed...")
     try:
@@ -180,44 +333,46 @@ def install_docker():
 
     log_info("Installing Docker Engine...")
     # Add Docker's official GPG key
-    run_command("sudo mkdir -p /etc/apt/keyrings", shell=True)
-    run_command("curl -fsSL https://download.docker.com/linux/debian/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg", shell=True)
+    run_command(["sudo", "mkdir", "-p", "/etc/apt/keyrings"])
+    run_command(["curl", "-fsSL", "https://download.docker.com/linux/debian/gpg", "|", "sudo", "gpg", "--dearmor", "-o", "/etc/apt/keyrings/docker.gpg"], shell=True)
 
     # Set up the stable Docker repository
-    docker_repo_line = f"deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian $(lsb_release -cs) stable"
-    run_command(f"echo \"{docker_repo_line}\" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null", shell=True)
+    docker_repo_line = "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian $(lsb_release -cs) stable"
+    run_command(["echo", docker_repo_line, "|", "sudo", "tee", "/etc/apt/sources.list.d/docker.list", ">", "/dev/null"], shell=True)
     
-    run_command("apt update", shell=True)
-    run_command("apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin", shell=True)
+    run_command(["sudo", "apt", "update"])
+    run_command(["sudo", "apt", "install", "-y", "docker-ce", "docker-ce-cli", "containerd.io", "docker-buildx-plugin", "docker-compose-plugin"])
 
     log_info("Adding current user to 'docker' group to run Docker commands without sudo (requires logout/login)...")
     current_user = os.getenv("SUDO_USER") or os.getlogin() # Get original user
-    run_command(f"usermod -aG docker {current_user}", shell=True)
+    run_command(["sudo", "usermod", "-aG", "docker", current_user])
     log_info("Docker installed. Please log out and log back in, or reboot, for Docker group changes to take effect.")
     log_info("You can then run 'docker run hello-world' to test Docker installation.")
 
 
 def install_system_dependencies():
     log_info("Updating package lists and installing core system dependencies...")
-    run_command("apt update", shell=True)
+    run_command(["sudo", "apt", "update"])
     # Removed apache2 from this list
     run_command([
-        "apt", "install", "-y", 
+        "sudo", "apt", "install", "-y", 
         "git", "python3", "python3-venv", "build-essential", 
         "libusb-1.0-0-dev", "libatlas-base-dev", "libopenblas-dev", "net-tools"
     ])
 
-    log_info("Installing rtl-sdr tools...")
-    run_command(["apt", "install", "-y", "rtl-sdr"])
+    log_info("Installing rtl-sdr tools (apt version).")
+    # This will be overridden by the diagnose_and_fix_sdr_host if it runs
+    run_command(["sudo", "apt", "install", "-y", "rtl-sdr"])
     
-    log_info("Blacklisting conflicting DVB-T kernel modules...")
+    log_info("Blacklisting conflicting DVB-T kernel modules.")
     blacklist_conf = "/etc/modprobe.d/blacklist-rtl.conf"
-    with open(blacklist_conf, "w") as f:
-        f.write("blacklist dvb_usb_rtl28xxu\n")
-        f.write("blacklist rtl2832\n")
-        f.write("blacklist rtl2830\n")
-    run_command("depmod -a", shell=True)
-    run_command("update-initramfs -u", shell=True)
+    if not os.path.exists(blacklist_conf):
+        log_warn(f"{blacklist_conf} not found. Creating it.")
+        subprocess.run(['sudo', 'tee', blacklist_conf], input="blacklist dvb_usb_rtl28xxu\nblacklist rtl2832\nblacklist rtl2830\n", text=True, check=True)
+    else:
+        log_info(f"{blacklist_conf} already exists.")
+    run_command(["sudo", "depmod", "-a"])
+    run_command(["sudo", "update-initramfs", "-u"])
     log_info("Conflicting kernel modules blacklisted. A reboot might be required for this to take effect.")
 
 def clone_hfgcspy_app_code(): # Renamed from clone_and_setup_venv
@@ -253,15 +408,15 @@ def build_and_run_docker_container():
         f.write(f"\n# Build-time unique identifier: {time.time()}\n")
 
     # Added --no-cache to force a fresh build
-    run_command(f"docker build --no-cache -t {HFGCSPY_DOCKER_IMAGE_NAME} .", shell=True)
+    run_command(["sudo", "docker", "build", "--no-cache", "-t", HFGCSPY_DOCKER_IMAGE_NAME, "."])
     os.chdir(current_dir) # Change back
 
     log_info(f"Stopping and removing any existing Docker container '{HFGCSPY_DOCKER_CONTAINER_NAME}'...")
-    run_command(f"docker stop {HFGCSPY_DOCKER_CONTAINER_NAME}", shell=True, check_return=False)
-    run_command(f"docker rm {HFGCSPY_DOCKER_CONTAINER_NAME}", shell=True, check_return=False)
+    run_command(["sudo", "docker", "stop", HFGCSPY_DOCKER_CONTAINER_NAME], check_return=False)
+    run_command(["sudo", "docker", "rm", HFGCSPY_DOCKER_CONTAINER_NAME], check_return=False)
 
     log_info(f"Creating Docker volume '{DOCKER_VOLUME_NAME}' for persistent data...")
-    run_command(f"docker volume create {DOCKER_VOLUME_NAME}", shell=True, check_return=False) # check_return=False if volume might exist
+    run_command(["sudo", "docker", "volume", "create", DOCKER_VOLUME_NAME], check_return=False) # check_return=False if volume might exist
 
     log_info(f"Running Docker container '{HFGCSPY_DOCKER_CONTAINER_NAME}' for HFGCSpy...")
     # Mount config.ini from host into container for easy editing
@@ -269,7 +424,7 @@ def build_and_run_docker_container():
     # Pass SDR device
     # Map internal Flask port to a host port (e.g., 8002) for Apache2 proxy
     run_command([
-        "docker", "run", "-d",
+        "sudo", "docker", "run", "-d",
         "--name", HFGCSPY_DOCKER_CONTAINER_NAME,
         "--restart", "unless-stopped",
         "--device", "/dev/bus/usb:/dev/bus/usb", # Pass SDR device
@@ -283,8 +438,8 @@ def build_and_run_docker_container():
     # --- New: Verify Docker container is running ---
     log_info(f"Verifying Docker container '{HFGCSPY_DOCKER_CONTAINER_NAME}' is running...")
     # Give Docker a moment to fully start the container process
-    time.sleep(10) # Increased sleep to 10 seconds
-    container_status_output = run_command(f"docker inspect -f '{{{{.State.Status}}}}' {HFGCSPY_DOCKER_CONTAINER_NAME}", shell=True, capture_output=True)
+    time.sleep(10) 
+    container_status_output = run_command(["sudo", "docker", "inspect", "-f", '{{.State.Status}}', HFGCSPY_DOCKER_CONTAINER_NAME], capture_output=True)
     container_status = container_status_output.strip() # Ensure no leading/trailing whitespace
 
     if container_status == "running":
@@ -294,7 +449,7 @@ def build_and_run_docker_container():
                   f"Please check container logs for details: 'docker logs {HFGCSPY_DOCKER_CONTAINER_NAME}'")
         # Explicitly display Docker logs if container is not running
         log_info(f"Displaying Docker container logs for '{HFGCSPY_DOCKER_CONTAINER_NAME}':")
-        run_command(f"sudo docker logs {HFGCSPY_DOCKER_CONTAINER_NAME}", shell=True, check_return=False) # Don't exit if logs have errors
+        run_command(["sudo", "docker", "logs", HFGCSPY_DOCKER_CONTAINER_NAME], check_return=False) # Don't exit if logs have errors
 
 
 def configure_hfgcspy_app():
@@ -344,15 +499,15 @@ def configure_hfgcspy_app():
     # This is for the cloned repo on the host, not inside Docker
     hfgcs_user = os.getenv("SUDO_USER") or "pi" 
     log_info(f"Setting ownership of {HFGCSpy_APP_DIR} to {hfgcs_user}...")
-    run_command(["chown", "-R", f"{hfgcs_user}:{hfgcs_user}", HFGCSpy_APP_DIR])
-    run_command(["chmod", "-R", "u+rwX,go-w", HFGCSpy_APP_DIR]) 
+    run_command(["sudo", "chown", "-R", f"{hfgcs_user}:{hfgcs_user}", HFGCSpy_APP_DIR])
+    run_command(["sudo", "chmod", "-R", "u+rwX,go-w", HFGCSpy_APP_DIR]) 
 
     # Create web-accessible data directories on HOST and set permissions for Apache
     log_info(f"Creating web-accessible data directories on host: {HFGCSpy_DATA_DIR} and {HFGCSPY_RECORDINGS_PATH}.") # Corrected typo here
     os.makedirs(HFGCSpy_DATA_DIR, exist_ok=True)
     os.makedirs(HFGCSPY_RECORDINGS_PATH, exist_ok=True) # Corrected typo here
-    run_command(["chown", "-R", "www-data:www-data", HFGCSpy_DATA_DIR])
-    run_command(["chmod", "-R", "775", HFGCSpy_DATA_DIR]) # Allow www-data read/write, others read/execute
+    run_command(["sudo", "chown", "-R", "www-data:www-data", HFGCSpy_DATA_DIR])
+    run_command(["sudo", "chmod", "-R", "775", HFGCSpy_DATA_DIR]) # Allow www-data read/write, others read/execute
 
     log_info("HFGCSpy application configured.")
 
@@ -388,22 +543,22 @@ WantedBy=multi-user.target
     with open(service_file_path, "w") as f:
         f.write(service_content)
     
-    run_command(["systemctl", "daemon-reload"])
+    run_command(["sudo", "systemctl", "daemon-reload"])
     
     if ask_yes_no("Do you want HFGCSpy Docker container to start automatically at machine boot?", default_yes=True): # Default to Yes
-        run_command(["systemctl", "enable", HFGCSPY_SERVICE_NAME])
+        run_command(["sudo", "systemctl", "enable", HFGCSPY_SERVICE_NAME])
         log_info("HFGCSpy Docker service enabled to start automatically at boot.")
     else:
-        run_command(["systemctl", "disable", HFGCSPY_SERVICE_NAME])
+        run_command(["sudo", "systemctl", "disable", HFGCSPY_SERVICE_NAME])
         log_info(f"HFGCSpy Docker service will NOT start automatically at boot. You'll need to start it manually: sudo systemctl start {HFGCSPY_SERVICE_NAME}")
 
     # Start the Docker container via systemd
-    run_command(["systemctl", "start", HFGCSPY_SERVICE_NAME])
+    run_command(["sudo", "systemctl", "start", HFGCSPY_SERVICE_NAME])
     log_info("HFGCSpy Docker service setup and started.")
 
 def update_hfgcspy_app_code():
     log_info("Stopping HFGCSpy Docker container for update...")
-    run_command(["systemctl", "stop", HFGCSPY_SERVICE_NAME], check_return=False)
+    run_command(["sudo", "systemctl", "stop", HFGCSPY_SERVICE_NAME], check_return=False)
     
     if not os.path.exists(HFGCSpy_APP_DIR):
         log_error(f"HFGCSpy application directory {HFGCSpy_APP_DIR} not found. Please run --install first.")
@@ -415,7 +570,7 @@ def update_hfgcspy_app_code():
     os.chdir(current_dir) 
     
     log_info(f"Rebuilding Docker image '{HFGCSPY_DOCKER_IMAGE_NAME}' with latest code...")
-    run_command(f"docker build -t {HFGCSPY_DOCKER_IMAGE_NAME} {HFGCSpy_APP_DIR}", shell=True)
+    run_command(["sudo", "docker", "build", "-t", HFGCSPY_DOCKER_IMAGE_NAME, HFGCSPY_APP_DIR])
 
     # Removed Apache web root copying from here
     # log_info(f"Re-copying web UI files to Apache web root: {WEB_ROOT_DIR}...")
@@ -436,7 +591,7 @@ def update_hfgcspy_app_code():
     # run_command(["chmod", "-R", "755", WEB_ROOT_DIR])
     
     log_info(f"Restarting HFGCSpy Docker service {HFGCSPY_SERVICE_NAME}...")
-    run_command(["systemctl", "start", HFGCSPY_SERVICE_NAME])
+    run_command(["sudo", "systemctl", "start", HFGCSPY_SERVICE_NAME])
     log_info("HFGCSpy updated and restarted.")
     # Removed Apache restart suggestion
     # log_info("Remember to restart Apache2 if there were any issues or config changes: sudo systemctl restart apache2")
@@ -465,18 +620,18 @@ def check_sdr():
 
 def uninstall_hfgcspy():
     log_warn(f"Stopping and disabling HFGCSpy Docker service {HFGCSPY_SERVICE_NAME}...")
-    run_command(["systemctl", "stop", HFGCSPY_SERVICE_NAME], check_return=False)
-    run_command(["systemctl", "disable", HFGCSPY_SERVICE_NAME], check_return=False)
+    run_command(["sudo", "systemctl", "stop", HFGCSPY_SERVICE_NAME], check_return=False)
+    run_command(["sudo", "systemctl", "disable", HFGCSPY_SERVICE_NAME], check_return=False)
     if os.path.exists(f"/etc/systemd/system/{HFGCSPY_SERVICE_NAME}"):
         os.remove(f"/etc/systemd/system/{HFGCSPY_SERVICE_NAME}")
-    run_command("systemctl daemon-reload", shell=True)
+    run_command(["sudo", "systemctl", "daemon-reload"])
     
     log_warn(f"Stopping and removing Docker container '{HFGCSPY_DOCKER_CONTAINER_NAME}'...")
-    run_command(f"docker stop {HFGCSPY_DOCKER_CONTAINER_NAME}", shell=True, check_return=False)
-    run_command(f"docker rm {HFGCSPY_DOCKER_CONTAINER_NAME}", shell=True, check_return=False)
+    run_command(["sudo", "docker", "stop", HFGCSPY_DOCKER_CONTAINER_NAME], check_return=False)
+    run_command(["sudo", "docker", "rm", HFGCSPY_DOCKER_CONTAINER_NAME], check_return=False)
 
     log_warn(f"Removing Docker volume '{DOCKER_VOLUME_NAME}' (this will delete persistent data)...")
-    run_command(f"docker volume rm {DOCKER_VOLUME_NAME}", shell=True, check_return=False)
+    run_command(["sudo", "docker", "volume", "rm", DOCKER_VOLUME_NAME], check_return=False)
 
     log_warn(f"Removing HFGCSpy application directory: {HFGCSpy_APP_DIR}...")
     if os.path.exists(HFGCSpy_APP_DIR):
@@ -506,12 +661,12 @@ def uninstall_hfgcspy():
 # Functions for stopping and checking status
 def stop_hfgcspy():
     log_info(f"Stopping HFGCSpy Docker service {HFGCSPY_SERVICE_NAME}...")
-    run_command(["systemctl", "stop", HFGCSPY_SERVICE_NAME], check_return=False)
+    run_command(["sudo", "systemctl", "stop", HFGCSPY_SERVICE_NAME], check_return=False)
     log_info("HFGCSpy service stopped.")
 
 def status_hfgcspy():
     log_info("Checking HFGCSpy Docker service status...")
-    run_command(["systemctl", "status", HFGCSPY_SERVICE_NAME], shell=True)
+    run_command(["sudo", "systemctl", "status", HFGCSPY_SERVICE_NAME], shell=True)
     # Removed Apache status check
     # log_info("Checking Apache2 service status...")
     # run_command(["systemctl", "status", "apache2"], shell=True)
@@ -557,9 +712,17 @@ def main():
         install_system_dependencies() # Install other system deps (rtl-sdr, etc.)
         clone_hfgcspy_app_code() # Clone app code and setup venv (on host)
         configure_hfgcspy_app() # Configure config.ini on host
+        
+        # --- NEW: Diagnose and fix SDR on host if needed ---
+        log_section("SDR Host-Level Diagnosis and Fix")
+        sdr_fixed = diagnose_and_fix_sdr_host()
+        if not sdr_fixed:
+            log_error("SDR could not be fixed on the host system. Please resolve this manually before proceeding with HFGCSpy installation.")
+        # --- END NEW SDR Diagnosis ---
+
         build_and_run_docker_container() # Build image and run container
         # Removed configure_apache2_webui() call
-        setup_systemd_service() # Setup systemd for Docker container
+        setup_systemd_service() # Setup systemd for Docker service
         log_info("HFGCSpy installation complete. Please consider rebooting your Raspberry Pi for full effect.")
 
         # --- Display Connection Strings (only Docker related) ---
@@ -569,27 +732,27 @@ def main():
         
         log_info("\n--- Post-Installation Diagnostic Report ---")
         log_info(f"Verifying Docker container '{HFGCSPY_DOCKER_CONTAINER_NAME}' status...")
-        container_status_output = run_command(f"docker inspect -f '{{{{.State.Status}}}}' {HFGCSPY_DOCKER_CONTAINER_NAME}", shell=True, capture_output=True)
+        container_status_output = run_command(["sudo", "docker", "inspect", "-f", '{{.State.Status}}', HFGCSPY_DOCKER_CONTAINER_NAME], capture_output=True)
         container_status = container_status_output.strip()
         log_info(f"Container '{HFGCSPY_DOCKER_CONTAINER_NAME}' status: {container_status}")
 
         log_info("\nShowing active Docker containers ('docker ps'):")
-        run_command("docker ps", shell=True, check_return=False)
+        run_command(["sudo", "docker", "ps"], check_return=False)
 
         log_info(f"\nShowing Docker container stats for '{HFGCSPY_DOCKER_CONTAINER_NAME}' ('docker stats --no-stream'):")
-        run_command(f"docker stats {HFGCSPY_DOCKER_CONTAINER_NAME} --no-stream", shell=True, check_return=False)
+        run_command(["sudo", "docker", "stats", HFGCSPY_DOCKER_CONTAINER_NAME, "--no-stream"], check_return=False)
 
         log_info(f"\nShowing listening ports on host ('sudo netstat -tulnp | grep {HFGCSPY_INTERNAL_PORT}'):")
-        run_command(f"sudo netstat -tulnp | grep {HFGCSPY_INTERNAL_PORT}", shell=True, check_return=False)
+        run_command(["sudo", "netstat", "-tulnp", "|", "grep", str(HFGCSPY_INTERNAL_PORT)], shell=True, check_return=False)
 
         log_info(f"\nAttempting curl to Web UI root (http://127.0.0.1:{HFGCSPY_INTERNAL_PORT}/):")
-        run_command(f"curl http://127.0.0.1:{HFGCSPY_INTERNAL_PORT}/", shell=True, check_return=False)
+        run_command(["curl", f"http://127.0.0.1:{HFGCSPY_INTERNAL_PORT}/"], check_return=False)
 
         log_info(f"\nAttempting curl to API status (http://127.0.0.1:{HFGCSPY_INTERNAL_PORT}/hfgcspy-api/status):")
-        run_command(f"curl http://127.0.0.1:{HFGCSPY_INTERNAL_PORT}/hfgcspy-api/status", shell=True, check_return=False)
+        run_command(["curl", f"http://127.0.0.1:{HFGCSPY_INTERNAL_PORT}/hfgcspy-api/status"], check_return=False)
         
         log_info("\n--- Docker Application Logs (last 50 lines) ---")
-        run_command(f"sudo docker logs --tail 50 {HFGCSPY_DOCKER_CONTAINER_NAME}", shell=True, check_return=False)
+        run_command(["sudo", "docker", "logs", "--tail", "50", HFGCSPY_DOCKER_CONTAINER_NAME], check_return=False)
         log_info("--- End Docker Application Logs ---")
 
         log_info("\n**IMPORTANT:** Please review the 'Post-Installation Diagnostic Report' above carefully.")
@@ -602,7 +765,7 @@ def main():
         # This case is now for running the Docker container directly, not the Python script
         log_info(f"Attempting to run HFGCSpy Docker container '{HFGCSPY_DOCKER_CONTAINER_NAME}' directly...")
         log_info(f"To manage as a service, use 'sudo systemctl start {HFGCSPY_SERVICE_NAME}'.")
-        run_command(f"docker start -a {HFGCSPY_DOCKER_CONTAINER_NAME}", shell=True)
+        run_command(["sudo", "docker", "start", "-a", HFGCSPY_DOCKER_CONTAINER_NAME])
     elif args.stop:
         check_root()
         stop_hfgcspy()
