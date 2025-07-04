@@ -1,7 +1,7 @@
 # HFGCSpy/setup.py
 # Python-based installer for HFGCSpy application.
 # This script handles all installation, configuration, and service management.
-# Version: 2.2.40 # Version bump for integrated SDR troubleshooting
+# Version: 2.2.41 # Version bump for SyntaxError fix in diagnose_and_fix_sdr_host
 
 import os
 import sys
@@ -13,7 +13,7 @@ import argparse
 import time # Import time module for sleep
 
 # --- Script Version ---
-__version__ = "2.2.40" # Updated version for integrated SDR troubleshooting
+__version__ = "2.2.41" # Updated version for SyntaxError fix in diagnose_and_fix_sdr_host
 
 # --- Configuration Constants (Defined directly in setup.py) ---
 # All constants are now embedded directly in this file to avoid import issues.
@@ -172,44 +172,44 @@ def diagnose_and_fix_sdr_host():
     log_info("Starting host-level SDR diagnostic and fix process.")
     
     # --- Initial SDR Hardware Detection on Host ---
-    log_section "Initial SDR Hardware Detection on Host"
-    log_info "Checking if SDR is detected by USB (lsusb)."
+    log_section("Initial SDR Hardware Detection on Host")
+    log_info("Checking if SDR is detected by USB (lsusb).")
     run_command(["lsusb"])
 
-    log_info "Running initial rtl_test -t to confirm 'PLL not locked!' status."
+    log_info("Running initial rtl_test -t to confirm 'PLL not locked!' status.")
     rtl_test_result = run_command(["rtl_test", "-t"], capture_output=True, check_return=False)
     
     sdr_working_initially = True
     if "PLL not locked!" in rtl_test_result.stdout or "No devices found" in rtl_test_result.stdout:
         sdr_working_initially = False
-        log_warn "Initial rtl_test reported problems ('PLL not locked!' or 'No devices found'). Attempting to fix."
+        log_warn("Initial rtl_test reported problems ('PLL not locked!' or 'No devices found'). Attempting to fix.")
     else:
-        log_success "Initial rtl_test ran successfully. SDR appears to be working on host."
+        log_success("Initial rtl_test ran successfully. SDR appears to be working on host.")
         return True # SDR is working, no need to proceed with fixes
 
-    log_section "Checking dmesg for recent SDR-related Kernel Messages"
-    log_info "Looking for messages from the last 50 lines."
+    log_section("Checking dmesg for recent SDR-related Kernel Messages")
+    log_info("Looking for messages from the last 50 lines.")
     run_command(["dmesg", "|", "tail", "-n", "50", "|", "grep", "-i", "rtl"], shell=True, check_return=False)
     run_command(["dmesg", "|", "tail", "-n", "50", "|", "grep", "-i", "dvb"], shell=True, check_return=False)
 
-    log_section "Thorough Purge and Alternative Reinstallation of rtl-sdr Tools and Libraries"
-    log_info "Purging existing rtl-sdr packages and development libraries."
+    log_section("Thorough Purge and Alternative Reinstallation of rtl-sdr Tools and Libraries")
+    log_info("Purging existing rtl-sdr packages and development libraries.")
     run_command(["sudo", "apt-get", "remove", "--purge", "rtl-sdr", "librtlsdr-dev", "-y"], check_return=False)
     run_command(["sudo", "apt", "autoremove", "-y"])
 
-    log_info "Updating package lists."
+    log_info("Updating package lists.")
     run_command(["sudo", "apt", "update", "-y"])
 
-    log_info "Installing build dependencies for rtl-sdr-blog."
+    log_info("Installing build dependencies for rtl-sdr-blog.")
     run_command(["sudo", "apt", "install", "cmake", "build-essential", "pkg-config", "debhelper", "-y"])
 
-    log_info "Cloning rtl-sdr-blog repository."
+    log_info("Cloning rtl-sdr-blog repository.")
     if os.path.exists("rtl-sdr-blog"):
-        log_warn "rtl-sdr-blog directory already exists. Removing and re-cloning."
+        log_warn("rtl-sdr-blog directory already exists. Removing and re-cloning.")
         shutil.rmtree("rtl-sdr-blog")
     run_command(["git", "clone", "https://github.com/rtlsdrblog/rtl-sdr-blog"])
 
-    log_info "Building Debian packages from rtl-sdr-blog source."
+    log_info("Building Debian packages from rtl-sdr-blog source.")
     current_dir = os.getcwd()
     os.chdir("rtl-sdr-blog")
     build_result = run_command(["sudo", "dpkg-buildpackage", "-b", "--no-sign"], check_return=False)
@@ -217,7 +217,7 @@ def diagnose_and_fix_sdr_host():
         log_error("Failed to build rtl-sdr-blog packages. Check build output above for details.")
     os.chdir(current_dir)
 
-    log_info "Installing the newly built Debian packages."
+    log_info("Installing the newly built Debian packages.")
     deb_files = [f for f in os.listdir(".") if f.endswith(".deb") and ("librtlsdr0" in f or "librtlsdr-dev" in f or "rtl-sdr" in f)]
     if not deb_files:
         log_error("No .deb packages found after building rtl-sdr-blog. Build might have failed.")
@@ -226,13 +226,13 @@ def diagnose_and_fix_sdr_host():
         if install_deb_result.returncode != 0:
             log_error("Failed to install some .deb packages. Check output above.")
 
-    log_info "Cleaning up rtl-sdr-blog source directory."
+    log_info("Cleaning up rtl-sdr-blog source directory.")
     if os.path.exists("rtl-sdr-blog"):
         shutil.rmtree("rtl-sdr-blog")
 
-    log_section "Verifying and Reloading Kernel Module Blacklisting"
+    log_section("Verifying and Reloading Kernel Module Blacklisting")
     BLACKLIST_FILE="/etc/modprobe.d/blacklist-rtl.conf"
-    log_info "Checking content of ${BLACKLIST_FILE}."
+    log_info(f"Checking content of {BLACKLIST_FILE}.")
     if os.path.exists(BLACKLIST_FILE):
         run_command(["cat", BLACKLIST_FILE])
         with open(BLACKLIST_FILE, 'r') as f:
@@ -241,44 +241,40 @@ def diagnose_and_fix_sdr_host():
                     "blacklist rtl2832" in content and \
                     "blacklist rtl2830" in content):
                 log_warn "Blacklist file exists but might be incomplete. Appending missing lines."
-                run_command(["echo", "blacklist dvb_usb_rtl28xxu"], shell=True, check_return=False) # Use tee for actual write
-                run_command(["echo", "blacklist rtl2832"], shell=True, check_return=False)
-                run_command(["echo", "blacklist rtl2830"], shell=True, check_return=False)
-                # Corrected tee usage
                 subprocess.run(['sudo', 'tee', '-a', BLACKLIST_FILE], input="blacklist dvb_usb_rtl28xxu\nblacklist rtl2832\nblacklist rtl2830\n", text=True, check=True)
             else:
                 log_info "Blacklist file appears correctly configured."
     else:
-        log_warn "${BLACKLIST_FILE} not found. Creating it with necessary blacklists."
+        log_warn f"{BLACKLIST_FILE} not found. Creating it with necessary blacklists."
         subprocess.run(['sudo', 'tee', BLACKLIST_FILE], input="blacklist dvb_usb_rtl28xxu\nblacklist rtl2832\nblacklist rtl2830\n", text=True, check=True)
 
-    log_info "Updating kernel module dependencies (depmod -a) and initramfs (update-initramfs -u)."
+    log_info("Updating kernel module dependencies (depmod -a) and initramfs (update-initramfs -u).")
     run_command(["sudo", "depmod", "-a"])
     run_command(["sudo", "update-initramfs", "-u"])
 
-    log_section "Verifying and Reloading udev Rules for Device Permissions"
+    log_section("Verifying and Reloading udev Rules for Device Permissions")
     UDEV_RULES_DIR="/etc/udev/rules.d/"
     UDEV_RULES_FILE="${UDEV_RULES_DIR}20-rtlsdr.rules" # Common name, sometimes 99-rtl-sdr.rules
 
-    log_info "Checking existence and permissions of /etc/udev/."
+    log_info(f"Checking existence and permissions of /etc/udev/.")
     run_command(["ls", "-ld", "/etc/udev/"], check_return=False)
-    log_info "Checking existence and permissions of ${UDEV_RULES_DIR}."
+    log_info(f"Checking existence and permissions of {UDEV_RULES_DIR}.")
     run_command(["ls", "-ld", UDEV_RULES_DIR], check_return=False)
 
 
     # Ensure the udev rules directory exists
     if not os.path.isdir(UDEV_RULES_DIR):
-        log_warn "udev rules directory ${UDEV_RULES_DIR} not found. Attempting to create it."
+        log_warn f"udev rules directory {UDEV_RULES_DIR} not found. Attempting to create it."
         run_command(["sudo", "mkdir", "-p", UDEV_RULES_DIR])
     else:
-        log_info "udev rules directory ${UDEV_RULES_DIR} exists."
+        log_info f"udev rules directory {UDEV_RULES_DIR} exists."
 
-    log_info "Checking for udev rules file: ${UDEV_RULES_FILE}."
+    log_info(f"Checking for udev rules file: {UDEV_RULES_FILE}.")
 
     # Check if the common udev rules file exists or create a generic one
     if not os.path.exists(UDEV_RULES_FILE) and not os.path.exists(os.path.join(UDEV_RULES_DIR, "99-rtl-sdr.rules")):
         log_warn "No standard RTL-SDR udev rules file found. Creating a generic one."
-        log_info "Creating ${UDEV_RULES_FILE} with basic read/write permissions for common RTL-SDRs."
+        log_info f"Creating {UDEV_RULES_FILE} with basic read/write permissions for common RTL-SDRs."
         udev_rules_content = """SUBSYSTEM=="usb", ATTRS{idVendor}=="0bda", ATTRS{idProduct}=="2832", MODE="0666", GROUP="plugdev", TAG+="uaccess"
 SUBSYSTEM=="usb", ATTRS{idVendor}=="0bda", ATTRS{idProduct}=="2838", MODE="0666", GROUP="plugdev", TAG+="uaccess"
 """ # Add other common RTL-SDR dongle IDs if needed
@@ -289,11 +285,11 @@ SUBSYSTEM=="usb", ATTRS{idVendor}=="0bda", ATTRS{idProduct}=="2838", MODE="0666"
         run_command(["cat", UDEV_RULES_FILE], check_return=False)
         run_command(["cat", os.path.join(UDEV_RULES_DIR, "99-rtl-sdr.rules")], check_return=False)
 
-    log_info "Reloading udev rules and triggering device re-scan."
+    log_info("Reloading udev rules and triggering device re-scan.")
     run_command(["sudo", "udevadm", "control", "--reload-rules"])
     run_command(["sudo", "udevadm", "trigger"])
 
-    log_section "Verifying Current User's Group Membership"
+    log_section("Verifying Current User's Group Membership")
     CURRENT_USER = os.getenv("SUDO_USER") or os.getlogin()
     log_info(f"Checking groups for current user ({CURRENT_USER}).")
     user_groups_output = run_command(["groups", CURRENT_USER], capture_output=True)
@@ -307,8 +303,8 @@ SUBSYSTEM=="usb", ATTRS{idVendor}=="0bda", ATTRS{idProduct}=="2838", MODE="0666"
     else:
         log_info f"User '{CURRENT_USER}' is already in the 'plugdev' group."
 
-    log_section "Final Test After Host-Level Fixes"
-    log_info "Running rtl_test -t again to confirm SDR is now working on the host."
+    log_section("Final Test After Host-Level Fixes")
+    log_info("Running rtl_test -t again to confirm SDR is now working on the host.")
     final_rtl_test_result = run_command(["rtl_test", "-t"], capture_output=True, check_return=False)
     print(final_rtl_test_result.stdout)
     print(final_rtl_test_result.stderr)
