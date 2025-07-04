@@ -1,7 +1,7 @@
 # HFGCSpy/setup.py
 # Python-based installer for HFGCSpy application.
 # This script handles all installation, configuration, and service management.
-# Version: 2.2.16 # Version bump for Docker container name typo fix
+# Version: 2.2.17 # Version bump for Apache Alias syntax error fix
 
 import os
 import sys
@@ -12,14 +12,14 @@ import re
 import argparse
 
 # --- Script Version ---
-__version__ = "2.2.16" # Updated version for Docker container name typo fix
+__version__ = "2.2.17" # Updated version for Apache Alias syntax error fix
 
 # --- Configuration Constants (Defined directly in setup.py) ---
 # All constants are now embedded directly in this file to avoid import issues.
 HFGCSPY_REPO = "https://github.com/sworrl/HFGCSpy.git" # IMPORTANT: Ensure this is correct!
 HFGCSPY_SERVICE_NAME = "hfgcspy_docker.service" # Service name is constant
 HFGCSPY_DOCKER_IMAGE_NAME = "hfgcspy_image"
-HFGCSPY_DOCKER_CONTAINER_NAME = "hfgcspy_app" # Corrected typo here
+HFGCSPY_DOCKER_CONTAINER_NAME = "hfgcspy_app" 
 HFGCSPY_INTERNAL_PORT = "8002" # Port for Flask/Gunicorn INSIDE Docker container
 
 # Default installation paths on the HOST system
@@ -432,19 +432,15 @@ def configure_apache2_webui():
         Require all granted
     </Directory>
 
-    Alias /hfgcspy-api/ http://127.0.0.1:{HFGCSPY_INTERNAL_PORT}/ # Proxy to Docker container's Flask API
-    <Location /hfgcspy-api/>
-        ProxyPass http://127.0.0.1:{HFGCSPY_INTERNAL_PORT}/
-        ProxyPassReverse http://127.0.0.1:{HFGCSPY_INTERNAL_PORT}/
-    </Location>
-
-    # Alias for data directory (status.json, messages.json, recordings)
     Alias /hfgcspy_data "{HFGCSpy_DATA_DIR}"
     <Directory "{HFGCSpy_DATA_DIR}">
         Options Indexes FollowSymLinks
         AllowOverride None
         Require all granted
     </Directory>
+
+    ProxyPass /hfgcspy-api/ http://127.0.0.1:{HFGCSPY_INTERNAL_PORT}/
+    ProxyPassReverse /hfgcspy-api/ http://127.0.0.1:{HFGCSPY_INTERNAL_PORT}/
 
     ErrorLog ${{APACHE_LOG_DIR}}/hfgcspy_webui_error.log
     CustomLog ${{APACHE_LOG_DIR}}/hfgcspy_webui_access.log combined
@@ -462,16 +458,15 @@ def configure_apache2_webui():
         Require all granted
     </Directory>
 
-    ProxyPass /hfgcspy-api/ http://127.0.0.1:{HFGCSPY_INTERNAL_PORT}/
-    ProxyPassReverse http://127.0.0.1:{HFGCSPY_INTERNAL_PORT}/
-
-    # Alias for data directory
     Alias /hfgcspy_data "{HFGCSpy_DATA_DIR}"
     <Directory "{HFGCSpy_DATA_DIR}">
         Options Indexes FollowSymLinks
         AllowOverride None
         Require all granted
     </Directory>
+
+    ProxyPass /hfgcspy-api/ http://127.0.0.1:{HFGCSPY_INTERNAL_PORT}/
+    ProxyPassReverse /hfgcspy-api/ http://127.0.0.1:{HFGCSPY_INTERNAL_PORT}/
 
     ErrorLog ${{APACHE_LOG_DIR}}/hfgcspy_webui_ssl_error.log
     CustomLog ${{APACHE_LOG_DIR}}/hfgcspy_webui_ssl_access.log combined
@@ -494,11 +489,8 @@ def configure_apache2_webui():
         log_info("HTTPS will not be configured automatically. Web UI will be available via HTTP only.")
 
     with open(apache_conf_path, "w") as f:
-        # It seems there was a mix-up here. We should write the apache_conf_content directly.
-        # config_obj.write(f) is for writing a ConfigParser object, not raw string content.
         f.write(apache_conf_content) 
 
-    # Removed the a2dissite 000-default.conf command as per user request
     run_command(["a2ensite", os.path.basename(apache_conf_path)])
     
     run_command(["systemctl", "restart", "apache2"])
