@@ -1,7 +1,7 @@
 # HFGCSpy/setup.py
 # Python-based installer for HFGCSpy application.
 # This script handles all installation, configuration, and service management.
-# Version: 2.2.32 # Version bump for ensuring all diagnostic command output is displayed
+# Version: 2.2.35 # Version bump for explicit get_devices import path in sdr_manager and full diagnostic output
 
 import os
 import sys
@@ -13,7 +13,7 @@ import argparse
 import time # Import time module for sleep
 
 # --- Script Version ---
-__version__ = "2.2.32" # Updated version for ensuring all diagnostic command output is displayed
+__version__ = "2.2.35" # Updated version for explicit get_devices import path in sdr_manager and full diagnostic output
 
 # --- Configuration Constants (Defined directly in setup.py) ---
 # All constants are now embedded directly in this file to avoid import issues.
@@ -55,15 +55,24 @@ def log_error(message, exit_code=1):
     print(f"\n\033[0;31mERROR: {message}\033[0m") # Red text for errors
     sys.exit(exit_code)
 
-def ask_yes_no(question):
+def ask_yes_no(question, default_yes=True): # Modified to accept default
     while True:
-        response = input(f"{question} (y/n): ").lower().strip()
-        if response == 'y':
-            return True
-        elif response == 'n':
-            return False
+        if default_yes:
+            response = input(f"{question} (Y/n): ").lower().strip()
+            if response == '' or response == 'y':
+                return True
+            elif response == 'n':
+                return False
+            else:
+                print("Please answer Y or n.")
         else:
-            print("Please answer y or n.")
+            response = input(f"{question} (y/N): ").lower().strip()
+            if response == 'y':
+                return True
+            elif response == '' or response == 'n':
+                return False
+            else:
+                print("Please answer y or N.")
 
 def run_command(command, check_return=True, capture_output=False, shell=False):
     log_info(f"Executing: {' '.join(command) if isinstance(command, list) else command}")
@@ -237,7 +246,8 @@ def build_and_run_docker_container():
     log_info(f"Building Docker image '{HFGCSPY_DOCKER_IMAGE_NAME}' for HFGCSpy...")
     current_dir = os.getcwd()
     os.chdir(HFGCSpy_APP_DIR) # Change to app dir to build Dockerfile
-    run_command(f"docker build -t {HFGCSPY_DOCKER_IMAGE_NAME} .", shell=True)
+    # Added --no-cache to force a fresh build
+    run_command(f"docker build --no-cache -t {HFGCSPY_DOCKER_IMAGE_NAME} .", shell=True)
     os.chdir(current_dir) # Change back
 
     log_info(f"Stopping and removing any existing Docker container '{HFGCSPY_DOCKER_CONTAINER_NAME}'...")
@@ -267,7 +277,7 @@ def build_and_run_docker_container():
     # --- New: Verify Docker container is running ---
     log_info(f"Verifying Docker container '{HFGCSPY_DOCKER_CONTAINER_NAME}' is running...")
     # Give Docker a moment to fully start the container process
-    time.sleep(10) 
+    time.sleep(10) # Increased sleep to 10 seconds
     container_status_output = run_command(f"docker inspect -f '{{{{.State.Status}}}}' {HFGCSPY_DOCKER_CONTAINER_NAME}", shell=True, capture_output=True)
     container_status = container_status_output.strip() # Ensure no leading/trailing whitespace
 
@@ -278,7 +288,7 @@ def build_and_run_docker_container():
                   f"Please check container logs for details: 'docker logs {HFGCSPY_DOCKER_CONTAINER_NAME}'")
         # Explicitly display Docker logs if container is not running
         log_info(f"Displaying Docker container logs for '{HFGCSPY_DOCKER_CONTAINER_NAME}':")
-        run_command(f"docker logs {HFGCSPY_DOCKER_CONTAINER_NAME}", shell=True, check_return=False) # Don't exit if logs have errors
+        run_command(f"sudo docker logs {HFGCSPY_DOCKER_CONTAINER_NAME}", shell=True, check_return=False) # Don't exit if logs have errors
 
 
 def configure_hfgcspy_app():
@@ -374,7 +384,7 @@ WantedBy=multi-user.target
     
     run_command(["systemctl", "daemon-reload"])
     
-    if ask_yes_no("Do you want HFGCSpy Docker container to start automatically at machine boot? (Recommended: Yes)"):
+    if ask_yes_no("Do you want HFGCSpy Docker container to start automatically at machine boot?", default_yes=True): # Default to Yes
         run_command(["systemctl", "enable", HFGCSPY_SERVICE_NAME])
         log_info("HFGCSpy Docker service enabled to start automatically at boot.")
     else:
