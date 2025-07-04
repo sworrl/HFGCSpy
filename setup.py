@@ -1,7 +1,7 @@
 # HFGCSpy/setup.py
 # Python-based installer for HFGCSpy application.
 # This script handles all installation, configuration, and service management.
-# Version: 2.2.19 # Version bump for Apache Alias directive fix
+# Version: 2.2.20 # Version bump for Apache Alias syntax error fix (final attempt)
 
 import os
 import sys
@@ -12,7 +12,7 @@ import re
 import argparse
 
 # --- Script Version ---
-__version__ = "2.2.19" # Updated version for Apache Alias directive fix
+__version__ = "2.2.20" # Updated version for Apache Alias syntax error fix
 
 # --- Configuration Constants (Defined directly in setup.py) ---
 # All constants are now embedded directly in this file to avoid import issues.
@@ -432,6 +432,13 @@ def configure_apache2_webui():
         Require all granted
     </Directory>
 
+    Alias /hfgcspy_data "{HFGCSpy_DATA_DIR}"
+    <Directory "{HFGCSpy_DATA_DIR}">
+        Options Indexes FollowSymLinks
+        AllowOverride None
+        Require all granted
+    </Directory>
+
     ProxyPass /hfgcspy-api/ http://127.0.0.1:{HFGCSPY_INTERNAL_PORT}/
     ProxyPassReverse /hfgcspy-api/ http://127.0.0.1:{HFGCSPY_INTERNAL_PORT}/
 
@@ -446,6 +453,13 @@ def configure_apache2_webui():
     DocumentRoot {WEB_ROOT_DIR}
 
     <Directory {WEB_ROOT_DIR}>
+        Options Indexes FollowSymLinks
+        AllowOverride None
+        Require all granted
+    </Directory>
+
+    Alias /hfgcspy_data "{HFGCSpy_DATA_DIR}"
+    <Directory "{HFGCSpy_DATA_DIR}">
         Options Indexes FollowSymLinks
         AllowOverride None
         Require all granted
