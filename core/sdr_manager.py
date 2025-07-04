@@ -1,5 +1,5 @@
 # HFGCSpy/core/sdr_manager.py
-# Version: 2.0.7 # Version bump for corrected SDR parameter assignment and RSSI calculation
+# Version: 2.0.7 # Version bump for robust rtlsdr import strategy (compatible with various versions)
 
 import numpy as np
 import logging
@@ -119,7 +119,6 @@ class SDRManager:
         
         # Convert to dBm (assuming 1mW reference, adjust if different reference is needed)
         # For RTL-SDR, raw power values are relative, so dBFS is more appropriate.
-        # Max theoretical power for RTL-SDR is 2^15, so 20*log10(max_amplitude)
         # A common way for relative power is 10 * log10(mean_power)
         if power > 0:
             rssi_db = 10 * np.log10(power)
