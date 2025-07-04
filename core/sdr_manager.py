@@ -28,13 +28,23 @@ class SDRManager:
         """
         devices = []
         try:
-            # Attempt to use rtlsdr.find_devices()
-            sdr_devices = rtlsdr.find_devices() 
+            # Attempt to use rtlsdr.get_devices() first (most common for newer versions)
+            # This is the most common and preferred method.
+            sdr_devices = rtlsdr.get_devices() 
             for dev in sdr_devices:
                 devices.append(dev.serial_number)
-            logger.info(f"Detected {len(devices)} SDR devices: {devices}")
+            logger.info(f"Detected {len(devices)} SDR devices: {devices} using rtlsdr.get_devices().")
+        except AttributeError:
+            # Fallback to rtlsdr.RtlSdr.get_devices() if rtlsdr.get_devices() fails
+            try:
+                sdr_devices = rtlsdr.RtlSdr.get_devices()
+                for dev in sdr_devices:
+                    devices.append(dev.serial_number)
+                logger.info(f"Detected {len(devices)} SDR devices: {devices} using rtlsdr.RtlSdr.get_devices().")
+            except Exception as e:
+                logger.error(f"Error listing SDR devices (tried both module-level and class-level get_devices): {e}", exc_info=True)
         except Exception as e:
-            logger.error(f"Error listing SDR devices: {e}", exc_info=True)
+            logger.error(f"General error listing SDR devices: {e}", exc_info=True)
         return devices
 
     def open_sdr(self):
@@ -43,6 +53,7 @@ class SDRManager:
             return
 
         try:
+            # Use RtlSdr from the imported rtlsdr module
             if isinstance(self.device_identifier, str):
                 self.sdr = rtlsdr.RtlSdr(serial_number=self.device_identifier)
             else:
