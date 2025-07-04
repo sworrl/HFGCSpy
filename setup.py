@@ -1,7 +1,7 @@
 # HFGCSpy/setup.py
 # Python-based installer for HFGCSpy application.
 # This script handles all installation, configuration, and service management.
-# Version: 2.2.17 # Version bump for Apache Alias syntax error fix
+# Version: 2.2.18 # Version bump for Apache configtest, Docker status, and connection strings
 
 import os
 import sys
@@ -12,7 +12,7 @@ import re
 import argparse
 
 # --- Script Version ---
-__version__ = "2.2.17" # Updated version for Apache Alias syntax error fix
+__version__ = "2.2.18" # Updated version for Apache configtest, Docker status, and connection strings
 
 # --- Configuration Constants (Defined directly in setup.py) ---
 # All constants are now embedded directly in this file to avoid import issues.
@@ -466,7 +466,7 @@ def configure_apache2_webui():
     </Directory>
 
     ProxyPass /hfgcspy-api/ http://127.0.0.1:{HFGCSPY_INTERNAL_PORT}/
-    ProxyPassReverse /hfgcspy-api/ http://127.0.0.1:{HFGCSPY_INTERNAL_PORT}/
+    ProxyPassReverse http://127.0.0.1:{HFGCSPY_INTERNAL_PORT}/
 
     ErrorLog ${{APACHE_LOG_DIR}}/hfgcspy_webui_ssl_error.log
     CustomLog ${{APACHE_LOG_DIR}}/hfgcspy_webui_ssl_access.log combined
@@ -699,6 +699,37 @@ def main():
         configure_apache2_webui() # Configure Apache to proxy to container
         setup_systemd_service() # Setup systemd for Docker container
         log_info("HFGCSpy installation complete. Please consider rebooting your Raspberry Pi for full effect.")
+
+        # --- Display Connection Strings ---
+        server_ip = run_command(["hostname", "-I"], capture_output=True).split()[0]
+        ssl_configured = False
+        ssl_domain_name = ""
+
+        # Attempt to read SSL domain from hfgcspy.conf if available
+        apache_conf_path = "/etc/apache2/sites-available/hfgcspy.conf"
+        try:
+            with open(apache_conf_path, 'r') as f:
+                content = f.read()
+                ssl_match = re.search(r"^\s*SSLEngine on", content, re.MULTILINE)
+                if ssl_match:
+                    ssl_configured = True
+                    domain_match = re.search(r"^\s*ServerName\s+([a-zA-Z0-9\-\.]+)", content, re.MULTILINE)
+                    if domain_match:
+                        ssl_domain_name = domain_match.group(1)
+        except FileNotFoundError:
+            pass # Config file not found, no SSL configured by script
+
+        log_info("\n--- HFGCSpy Access Information ---")
+        log_info(f"Web UI (via Apache): http://{server_ip}/hfgcspy")
+        if ssl_configured:
+            if ssl_domain_name:
+                log_info(f"Web UI (HTTPS via Apache): https://{ssl_domain_name}/hfgcspy")
+            else:
+                log_info(f"Web UI (HTTPS via Apache): https://{server_ip}/hfgcspy (Access might require accepting certificate warning)")
+        
+        log_info(f"Docker API (local only for debugging): http://127.0.0.1:{HFGCSPY_INTERNAL_PORT}/hfgcspy-api/status")
+        log_info("----------------------------------")
+
     elif args.run:
         check_root() # Running main app requires root for SDR
         # This case is now for running the Docker container directly, not the Python script
