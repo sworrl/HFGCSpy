@@ -1,7 +1,7 @@
 # HFGCSpy/setup.py
 # Python-based installer for HFGCSpy application.
 # This script handles all installation, configuration, and service management.
-# Version: 2.2.31 # Version bump for robust Docker container status check and guaranteed logs on failure
+# Version: 2.2.32 # Version bump for ensuring all diagnostic command output is displayed
 
 import os
 import sys
@@ -13,7 +13,7 @@ import argparse
 import time # Import time module for sleep
 
 # --- Script Version ---
-__version__ = "2.2.31" # Updated version for robust Docker container status check and guaranteed logs on failure
+__version__ = "2.2.32" # Updated version for ensuring all diagnostic command output is displayed
 
 # --- Configuration Constants (Defined directly in setup.py) ---
 # All constants are now embedded directly in this file to avoid import issues.
@@ -74,14 +74,16 @@ def run_command(command, check_return=True, capture_output=False, shell=False):
         if check_return and result.returncode != 0:
             log_error(f"Command failed with exit code {result.returncode}.\nStderr: {result.stderr.strip()}\nStdout: {result.stdout.strip()}")
         
-        if capture_output:
-            return result.stdout.strip()
-        else: # If not capturing output, print it directly
+        # Always print stdout and stderr if not explicitly capturing output for return value
+        if not capture_output:
             if result.stdout:
                 print(result.stdout.strip())
             if result.stderr:
                 print(result.stderr.strip())
-            return result # Return the CompletedProcess object
+        
+        if capture_output:
+            return result.stdout.strip()
+        return result # Return the CompletedProcess object for non-captured output calls
     except subprocess.CalledProcessError as e:
         # This block might not be reached with check=False, but keep for robustness
         log_error(f"Command failed with exit code {e.returncode}.\nStderr: {e.stderr.strip()}\nStdout: {e.stdout.strip()}")
@@ -265,7 +267,7 @@ def build_and_run_docker_container():
     # --- New: Verify Docker container is running ---
     log_info(f"Verifying Docker container '{HFGCSPY_DOCKER_CONTAINER_NAME}' is running...")
     # Give Docker a moment to fully start the container process
-    time.sleep(10) # Increased sleep to 10 seconds
+    time.sleep(10) 
     container_status_output = run_command(f"docker inspect -f '{{{{.State.Status}}}}' {HFGCSPY_DOCKER_CONTAINER_NAME}", shell=True, capture_output=True)
     container_status = container_status_output.strip() # Ensure no leading/trailing whitespace
 
@@ -570,7 +572,13 @@ def main():
         log_info(f"\nAttempting curl to API status (http://127.0.0.1:{HFGCSPY_INTERNAL_PORT}/hfgcspy-api/status):")
         run_command(f"curl http://127.0.0.1:{HFGCSPY_INTERNAL_PORT}/hfgcspy-api/status", shell=True, check_return=False)
         
-        log_info("\n**IMPORTANT:** If you are still unable to access the web UI, please review the 'Post-Installation Diagnostic Report' above, and if necessary, run 'docker logs hfgcspy_app' for detailed application logs.")
+        log_info("\n--- Docker Application Logs (last 50 lines) ---")
+        run_command(f"sudo docker logs --tail 50 {HFGCSPY_DOCKER_CONTAINER_NAME}", shell=True, check_return=False)
+        log_info("--- End Docker Application Logs ---")
+
+        log_info("\n**IMPORTANT:** Please review the 'Post-Installation Diagnostic Report' above carefully.")
+        log_info("If the container status is 'restarting' or 'exited', the application has failed to start.")
+        log_info("The detailed application logs are displayed above this message. This is the key to debugging.")
         log_info("----------------------------------")
 
     elif args.run:

@@ -1,8 +1,8 @@
 # HFGCSpy/core/sdr_manager.py
-# Version: 2.0.0
+# Version: 2.0.2 # Version bump for get_devices import fix
 
 import numpy as np
-from rtlsdr import RtlSdr, get_devices
+from rtlsdr.rtlsdr import RtlSdr, get_devices # Corrected import path for get_devices
 import logging
 import time # For potential delays in error recovery
 
