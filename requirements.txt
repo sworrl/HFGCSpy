@@ -1,7 +1,7 @@
 # HFGCSpy/requirements.txt
-# Version: 2.0.1
+# Version: 2.0.2
 
-pyrtlsdr==0.5.3
+pyrtlsdr
 numpy
 scipy
 Flask

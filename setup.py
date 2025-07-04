@@ -1,7 +1,7 @@
 # HFGCSpy/setup.py
 # Python-based installer for HFGCSpy application.
 # This script handles all installation, configuration, and service management.
-# Version: 2.2.35 # Version bump for explicit get_devices import path in sdr_manager and full diagnostic output
+# Version: 2.2.37 # Version bump for sdr_manager.py enhancements
 
 import os
 import sys
@@ -13,7 +13,7 @@ import argparse
 import time # Import time module for sleep
 
 # --- Script Version ---
-__version__ = "2.2.35" # Updated version for explicit get_devices import path in sdr_manager and full diagnostic output
+__version__ = "2.2.37" # Updated version for sdr_manager.py enhancements
 
 # --- Configuration Constants (Defined directly in setup.py) ---
 # All constants are now embedded directly in this file to avoid import issues.

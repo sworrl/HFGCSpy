@@ -1,26 +1,31 @@
 # HFGCSpy/core/sdr_manager.py
-# Version: 2.0.5 # Version bump for definitive get_devices import fix (standard import)
+# Version: 2.0.7 # Version bump for corrected SDR parameter assignment and RSSI calculation
 
 import numpy as np
-# Reverting to the standard import path for get_devices
-from rtlsdr import RtlSdr, get_devices 
 import logging
 import time # For potential delays in error recovery
 
 logger = logging.getLogger(__name__)
+
+# Robust import strategy for RtlSdr and get_devices
+try:
+    from rtlsdr import RtlSdr, get_devices
+except ImportError:
+    try:
+        from rtlsdr.rtlsdr import RtlSdr, get_devices
+    except ImportError as e:
+        logger.critical(f"Failed to import RtlSdr or get_devices from rtlsdr. Check pyrtlsdr installation. Error: {e}")
+        # Re-raise the error to stop the application if imports fail
+        raise
 
 class SDRManager:
     def __init__(self, device_identifier=0, sample_rate=2.048e6, center_freq=8.992e6, gain='auto', ppm_correction=0):
         self.sdr = None
         self.device_identifier = device_identifier # Can be int index or string serial
         self.sample_rate = sample_rate
-        # self.sdr.sample_rate = self.sample_rate # These lines should be set after sdr object creation
         self.center_freq = center_freq
-        # self.sdr.center_freq = self.center_freq # These lines should be set after sdr object creation
         self.gain = gain
-        # self.sdr.gain = self.gain # These lines should be set after sdr object creation
         self.ppm_correction = ppm_correction
-        # self.sdr.freq_correction = self.ppm_correction # These lines should be set after sdr object creation
         self._is_open = False # Track SDR open state
 
     @staticmethod
@@ -100,4 +105,25 @@ class SDRManager:
         else:
             logger.warning(f"SDR device '{self.device_identifier}' not open. Cannot set frequency.")
 
-    # Future DSP and decoding methods would live here or in separate decoder modules.
+    def calculate_rssi(self, samples):
+        """
+        Calculates the Received Signal Strength Indicator (RSSI) from complex samples.
+        RSSI is typically proportional to the average power of the signal.
+        Returns RSSI in dB.
+        """
+        if samples.size == 0:
+            return -float('inf') # Return negative infinity for no samples
+        
+        # Calculate power from complex samples (I^2 + Q^2)
+        power = np.mean(np.abs(samples)**2)
+        
+        # Convert to dBm (assuming 1mW reference, adjust if different reference is needed)
+        # For RTL-SDR, raw power values are relative, so dBFS is more appropriate.
+        # Max theoretical power for RTL-SDR is 2^15, so 20*log10(max_amplitude)
+        # A common way for relative power is 10 * log10(mean_power)
+        if power > 0:
+            rssi_db = 10 * np.log10(power)
+        else:
+            rssi_db = -100 # Very low value for zero or negative power
+        
+        return rssi_db
