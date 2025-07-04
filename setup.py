@@ -1,7 +1,7 @@
 # HFGCSpy/setup.py
 # Python-based installer for HFGCSpy application.
 # This script handles all installation, configuration, and service management.
-# Version: 2.2.29 # Version bump for comprehensive post-install diagnostics
+# Version: 2.2.30 # Version bump for displaying diagnostic command output
 
 import os
 import sys
@@ -13,7 +13,7 @@ import argparse
 import time # Import time module for sleep
 
 # --- Script Version ---
-__version__ = "2.2.29" # Updated version for comprehensive post-install diagnostics
+__version__ = "2.2.30" # Updated version for displaying diagnostic command output
 
 # --- Configuration Constants (Defined directly in setup.py) ---
 # All constants are now embedded directly in this file to avoid import issues.
@@ -76,7 +76,12 @@ def run_command(command, check_return=True, capture_output=False, shell=False):
         
         if capture_output:
             return result.stdout.strip()
-        return result
+        else: # If not capturing output, print it directly
+            if result.stdout:
+                print(result.stdout.strip())
+            if result.stderr:
+                print(result.stderr.strip())
+            return result # Return the CompletedProcess object
     except subprocess.CalledProcessError as e:
         # This block might not be reached with check=False, but keep for robustness
         log_error(f"Command failed with exit code {e.returncode}.\nStderr: {e.stderr.strip()}\nStdout: {e.stdout.strip()}")
