@@ -1,249 +1,211 @@
-# HFGCSpy/api_server.py
-# Flask API server for HFGCSpy, runs inside the Docker container.
-# This API serves data to the web UI and handles configuration updates.
-# Version: 2.0.0
+# HFGCSpy/core/data_store.py
+# Version: 2.0.1 # Version bump for circular import fix
 
-import os
-import sys
+import sqlite3
 import json
-import configparser
+import os
 import logging
-from flask import Flask, jsonify, request, send_from_directory
 from datetime import datetime
 
-# Add parent directory to path to allow importing core modules
-# This assumes /app is the working directory inside the Docker container
-sys.path.append(os.path.join(os.path.dirname(__file__), 'core'))
+logger = logging.getLogger(__name__)
 
-from data_store import DataStore
-from sdr_manager import SDRManager # For listing detected SDRs
+class DataStore:
+    def __init__(self, db_path='hfgcspy.db'):
+        self.db_path = db_path
+        self.conn = None
 
-# --- Configuration Loading ---
-config = configparser.ConfigParser()
-CONFIG_FILE_PATH = "/app/config.ini" # Path inside Docker container
-CONFIG_JSON_FILE_PATH = "/app/data/hfgcspy_data/config.json" # Path inside Docker container for UI to read
+    def _connect(self):
+        try:
+            self.conn = sqlite3.connect(self.db_path)
+            self.conn.row_factory = sqlite3.Row # Allows accessing columns by name
+            logger.debug(f"Connected to database: {self.db_path}")
+        except sqlite3.Error as e:
+            logger.error(f"Database connection error: {e}")
+            self.conn = None
 
-try:
-    config.read(CONFIG_FILE_PATH)
-    DB_PATH = config.get('app', 'database_path', fallback='/app/data/hfgcspy.db')
-    LOG_FILE = config.get('logging', 'log_file', fallback='/app/logs/hfgcspy.log')
-    INTERNAL_PORT = config.get('app', 'internal_port', fallback='8002')
-    RECORDINGS_DIR = config.get('app_paths', 'recordings_dir', fallback='/app/data/recordings')
+    def _close(self):
+        if self.conn:
+            self.conn.close()
+            self.conn = None
+            logger.debug("Database connection closed.")
 
-except configparser.Error as e:
-    print(f"ERROR: Could not read config.ini in api_server: {e}. Using default paths.")
-    DB_PATH = '/app/data/hfgcspy.db'
-    LOG_FILE = '/app/logs/hfgcspy.log'
-    INTERNAL_PORT = '8002'
-    RECORDINGS_DIR = '/app/data/recordings'
+    def initialize_db(self):
+        try:
+            self._connect()
+            if not self.conn:
+                return False
+            cursor = self.conn.cursor()
+            # Table for HFGCS messages
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS hfgcs_messages (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    timestamp TEXT DEFAULT CURRENT_TIMESTAMP,
+                    frequency_hz INTEGER,
+                    mode TEXT,
+                    message_type TEXT,
+                    callsign TEXT,
+                    decoded_text TEXT,
+                    raw_content_path TEXT, -- Path to raw audio/data file
+                    notes TEXT,
+                    source TEXT DEFAULT 'local_sdr' -- 'local_sdr' or name of online SDR
+                )
+            """)
+            # Table for JS8 messages
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS js8_messages (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    timestamp TEXT DEFAULT CURRENT_TIMESTAMP,
+                    frequency_hz INTEGER,
+                    mode TEXT,
+                    message_type TEXT,
+                    callsign TEXT,
+                    decoded_text TEXT,
+                    raw_content_path TEXT,
+                    notes TEXT,
+                    source TEXT DEFAULT 'local_sdr'
+                )
+            """)
+            # Table for ADS-B messages (new)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS adsb_messages (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    timestamp TEXT DEFAULT CURRENT_TIMESTAMP,
+                    frequency_hz INTEGER,
+                    icao_hex TEXT,
+                    callsign TEXT,
+                    latitude REAL,
+                    longitude REAL,
+                    altitude INTEGER,
+                    velocity INTEGER,
+                    heading INTEGER,
+                    raw_content_path TEXT,
+                    notes TEXT,
+                    source TEXT DEFAULT 'local_sdr'
+                )
+            """)
+            self.conn.commit()
+            logger.info("Database initialized successfully (tables created if not exist).")
+            return True
+        except sqlite3.Error as e:
+            logger.error(f"Error initializing database: {e}")
+            return False
+        finally:
+            self._close()
 
-# --- Logging Setup for Flask API ---
-# Use a separate logger for Flask API if desired, or share with main app logger
-logging.basicConfig(
-    level=logging.INFO, # Default to INFO for API logs
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler(LOG_FILE), # Log to the same file as main app
-        logging.StreamHandler(sys.stdout)
-    ]
-)
-flask_logger = logging.getLogger('HFGCSpy.API')
-flask_logger.info("HFGCSpy Flask API server starting...")
+    def insert_message(self, message_data, table_name='hfgcs_messages'):
+        if table_name not in ['hfgcs_messages', 'js8_messages', 'adsb_messages']:
+            logger.error(f"Invalid table name: {table_name}. Message not inserted.")
+            return False
 
+        self._connect()
+        if not self.conn:
+            return False
 
-# Initialize Flask app
-app = Flask(__name__, 
-            static_folder='/app/web_ui', # Static files for web UI (served by Apache, but Flask can serve for dev)
-            template_folder='/app/web_ui') # Templates for web UI (not used much if JS renders)
+        try:
+            cursor = self.conn.cursor()
+            if table_name == 'hfgcs_messages':
+                cursor.execute("""
+                    INSERT INTO hfgcs_messages (timestamp, frequency_hz, mode, message_type, callsign, decoded_text, raw_content_path, notes, source)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    message_data.get('timestamp', datetime.now().strftime("%Y-%m-%d %H:%M:%S")),
+                    message_data.get('frequency_hz'),
+                    message_data.get('mode'),
+                    message_data.get('message_type'),
+                    message_data.get('callsign'),
+                    message_data.get('decoded_text'),
+                    message_data.get('raw_content_path'),
+                    message_data.get('notes'),
+                    message_data.get('source', 'local_sdr')
+                ))
+            elif table_name == 'js8_messages':
+                cursor.execute("""
+                    INSERT INTO js8_messages (timestamp, frequency_hz, mode, message_type, callsign, decoded_text, raw_content_path, notes, source)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    message_data.get('timestamp', datetime.now().strftime("%Y-%m-%d %H:%M:%S")),
+                    message_data.get('frequency_hz'),
+                    message_data.get('mode'),
+                    message_data.get('message_type'),
+                    message_data.get('callsign'),
+                    message_data.get('decoded_text'),
+                    message_data.get('raw_content_path'),
+                    message_data.get('notes'),
+                    message_data.get('source', 'local_sdr')
+                ))
+            elif table_name == 'adsb_messages':
+                cursor.execute("""
+                    INSERT INTO adsb_messages (timestamp, frequency_hz, icao_hex, callsign, latitude, longitude, altitude, velocity, heading, raw_content_path, notes, source)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    message_data.get('timestamp', datetime.now().strftime("%Y-%m-%d %H:%M:%S")),
+                    message_data.get('frequency_hz'),
+                    message_data.get('icao_hex'),
+                    message_data.get('callsign'),
+                    message_data.get('latitude'),
+                    message_data.get('longitude'),
+                    message_data.get('altitude'),
+                    message_data.get('velocity'),
+                    message_data.get('heading'),
+                    message_data.get('raw_content_path'),
+                    message_data.get('notes'),
+                    message_data.get('source', 'local_sdr')
+                ))
+            self.conn.commit()
+            logger.info(f"Message inserted into {table_name}.")
+            return True
+        except sqlite3.Error as e:
+            logger.error(f"Error inserting message into {table_name}: {e}")
+            return False
+        finally:
+            self._close()
 
-# Initialize DataStore
-data_store = DataStore(DB_PATH)
-data_store.initialize_db()
+    def get_recent_messages(self, table_name='hfgcs_messages', limit=50, sdr_id=None):
+        if table_name not in ['hfgcs_messages', 'js8_messages', 'adsb_messages']:
+            logger.error(f"Invalid table name: {table_name}. Cannot retrieve messages.")
+            return []
 
-# --- API Endpoints ---
+        self._connect()
+        if not self.conn:
+            return []
 
-@app.route('/')
-def index():
-    """Serves the main HFGCSpy web dashboard HTML."""
-    # This endpoint is primarily for direct access during development/testing.
-    # In production, Apache2 will serve index.html directly.
-    return send_from_directory('/app/web_ui', 'index.html')
+        messages = []
+        try:
+            cursor = self.conn.cursor()
+            query = f"SELECT * FROM {table_name}"
+            params = []
+            if sdr_id:
+                query += " WHERE source = ?"
+                params.append(sdr_id)
+            query += " ORDER BY timestamp DESC LIMIT ?"
+            params.append(limit)
+            
+            cursor.execute(query, params)
+            rows = cursor.fetchall()
+            for row in rows:
+                messages.append(dict(row)) # Convert Row object to dictionary
+        except sqlite3.Error as e:
+            logger.error(f"Error retrieving messages from {table_name}: {e}")
+        finally:
+            self._close()
+        return messages
 
-@app.route('/styles.css')
-def serve_styles():
-    return send_from_directory('/app/web_ui', 'styles.css')
+    def delete_message(self, table_name, message_id):
+        if table_name not in ['hfgcs_messages', 'js8_messages', 'adsb_messages']:
+            logger.error(f"Invalid table name: {table_name}. Message not deleted.")
+            return False
 
-@app.route('/script.js')
-def serve_script():
-    return send_from_directory('/app/web_ui', 'script.js')
+        self._connect()
+        if not self.conn:
+            return False
 
-@app.route('/recordings/<path:filename>')
-def serve_recording(filename):
-    """Serves recorded audio files."""
-    return send_from_directory(RECORDINGS_DIR, filename)
-
-
-@app.route('/hfgcspy-api/status')
-def get_status():
-    """Returns the current status of the HFGCSpy application and detected SDRs."""
-    status_data = {
-        "hfgcs_service": "Running", # These will be updated by main hfgcs.py loop
-        "js8_service": "Running",
-        "adsb_service": "Running",
-        "sdr_devices": {}, # Operational status of SDRs managed by main loop
-        "detected_sdr_devices": SDRManager.list_sdr_devices_serials(), # Live detection
-        "selected_sdr_devices": [], # From config, will be updated by main loop
-        "app_version": config.get('app', 'version', fallback='N/A'), # Get version from config
-        "last_updated": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    }
-    # Read actual status from a file written by hfgcs.py if needed, for now use dummy
-    try:
-        with open(STATUS_FILE, 'r') as f:
-            live_status = json.load(f)
-            status_data.update(live_status)
-    except FileNotFoundError:
-        flask_logger.warn(f"Status file {STATUS_FILE} not found. Using default status.")
-    except json.JSONDecodeError:
-        flask_logger.error(f"Error decoding status file {STATUS_FILE}. Using default status.")
-    
-    flask_logger.debug(f"API status requested: {status_data}")
-    return jsonify(status_data)
-
-@app.route('/hfgcspy-api/messages')
-def get_messages():
-    """Retrieves recent HFGCS messages from the database."""
-    # This endpoint can be extended to take table_name and sdr_id as args
-    table_name = request.args.get('table', 'hfgcs_messages')
-    sdr_id = request.args.get('sdr_id', None)
-    limit = request.args.get('limit', config.getint('app', 'messages_per_page', fallback=50), type=int)
-
-    messages = data_store.get_recent_messages(table_name=table_name, limit=limit, sdr_id=sdr_id)
-    
-    # Ensure timestamp is string for JSON serialization if not already
-    for msg in messages:
-        if 'timestamp' in msg and isinstance(msg['timestamp'], datetime):
-            msg['timestamp'] = msg['timestamp'].strftime("%Y-%m-%d %H:%M:%S")
-        elif 'timestamp' not in msg:
-            msg['timestamp'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        msg['table_name'] = table_name # Ensure table_name is in message for UI delete action
-
-    flask_logger.debug(f"API messages requested from {table_name}, sdr_id={sdr_id}, limit={limit}. Returning {len(messages)} messages.")
-    return jsonify(messages)
-
-
-@app.route('/hfgcspy-api/config')
-def get_config():
-    """Retrieves current configuration settings for the UI."""
-    config_data = {}
-    try:
-        # Read config.ini and export relevant parts as JSON
-        config_obj = configparser.ConfigParser()
-        config_obj.read(CONFIG_FILE_PATH)
-
-        config_data['app'] = {
-            'dark_mode': config_obj.getboolean('app', 'dark_mode', fallback=True), # Default dark mode
-            'messages_per_page': config_obj.getint('app', 'messages_per_page', fallback=50),
-            'internal_port': config_obj.get('app', 'internal_port', fallback='8002')
-        }
-        config_data['scan_services'] = {
-            'hfgcs': config_obj.get('scan_services', 'hfgcs', fallback='no'),
-            'js8': config_obj.get('scan_services', 'js8', fallback='no'),
-            'adsb': config_obj.get('scan_services', 'adsb', fallback='no')
-        }
-        config_data['sdr_selection'] = {
-            'selected_devices': [s.strip() for s in config_obj.get('sdr_selection', 'selected_devices', fallback='').split(',') if s.strip()]
-        }
-        online_sdrs_list = {}
-        if config_obj.has_section('online_sdrs'):
-            for name, url_type in config_obj.items('online_sdrs'):
-                parts = url_type.split(',', 1)
-                url = parts[0].strip()
-                sdr_type = parts[1].strip() if len(parts) > 1 else 'unknown'
-                online_sdrs_list[name] = {'url': url, 'type': sdr_type}
-        config_data['online_sdrs'] = {'list_of_sdrs': online_sdrs_list}
-
-        # Add detected SDRs from SDRManager (live data)
-        config_data['detected_sdr_devices'] = SDRManager.list_sdr_devices_serials()
-
-        # Write this JSON to a file for the UI to read (Apache serves it)
-        with open(CONFIG_JSON_FILE_PATH, 'w') as f:
-            json.dump(config_data, f, indent=4)
-        
-        flask_logger.debug(f"Config exported to {CONFIG_JSON_FILE_PATH}")
-        return jsonify(config_data)
-
-    except Exception as e:
-        flask_logger.error(f"Error getting config: {e}", exc_info=True)
-        return jsonify({"error": "Failed to load config"}), 500
-
-@app.route('/hfgcspy-api/config', methods=['POST'])
-def save_config():
-    """Receives config updates from the UI and writes them to config.ini."""
-    if not request.is_json:
-        return jsonify({"error": "Request must be JSON"}), 400
-    
-    new_config_data = request.get_json()
-    flask_logger.info(f"Received config update from UI: {new_config_data}")
-
-    try:
-        config_obj = configparser.ConfigParser()
-        config_obj.read(CONFIG_FILE_PATH) # Read current config to preserve other settings
-
-        # Update sections based on new_config_data
-        if 'app' in new_config_data:
-            if not config_obj.has_section('app'): config_obj.add_section('app')
-            for key, value in new_config_data['app'].items():
-                config_obj.set('app', key, str(value))
-        
-        if 'scan_services' in new_config_data:
-            if not config_obj.has_section('scan_services'): config_obj.add_section('scan_services')
-            for key, value in new_config_data['scan_services'].items():
-                config_obj.set('scan_services', key, str(value))
-
-        if 'sdr_selection' in new_config_data:
-            if not config_obj.has_section('sdr_selection'): config_obj.add_section('sdr_selection')
-            selected_devices_str = ','.join(new_config_data['sdr_selection'].get('selected_devices', []))
-            config_obj.set('sdr_selection', 'selected_devices', selected_devices_str)
-        
-        if 'online_sdrs' in new_config_data and 'list_of_sdrs' in new_config_data['online_sdrs']:
-            if not config_obj.has_section('online_sdrs'): config_obj.add_section('online_sdrs')
-            # Clear existing online_sdrs to rewrite
-            for option in config_obj.options('online_sdrs'):
-                config_obj.remove_option('online_sdrs', option)
-            # Add new online SDRs
-            for name, sdr_info in new_config_data['online_sdrs']['list_of_sdrs'].items():
-                config_obj.set('online_sdrs', name, f"{sdr_info['url']},{sdr_info['type']}")
-
-        with open(CONFIG_FILE_PATH, 'w') as f:
-            config_obj.write(f)
-        
-        flask_logger.info("Config.ini updated successfully from UI.")
-        # Trigger a restart of the main hfgcs.py loop to apply changes
-        # This requires hfgcs.py to expose a mechanism to restart its loop.
-        # For now, we'll just log that a restart is needed.
-        flask_logger.info("HFGCSpy service restart needed to apply new config.ini changes.")
-        return jsonify({"status": "Success", "message": "Config saved. Restart HFGCSpy service for changes to take effect."})
-
-    except Exception as e:
-        flask_logger.error(f"Error saving config: {e}", exc_info=True)
-        return jsonify({"status": "Error", "message": "Failed to save config."}), 500
-
-@app.route('/hfgcspy-api/messages/<table_name>/<int:message_id>', methods=['DELETE'])
-def delete_message_api(table_name, message_id):
-    """Deletes a message from a specified table."""
-    try:
-        success = data_store.delete_message(table_name, message_id)
-        if success:
-            flask_logger.info(f"Deleted message ID {message_id} from table {table_name}.")
-            return jsonify({"status": "Success", "message": "Message deleted."})
-        else:
-            return jsonify({"status": "Error", "message": "Message not found or failed to delete."}), 404
-    except Exception as e:
-        flask_logger.error(f"Error deleting message: {e}", exc_info=True)
-        return jsonify({"status": "Error", "message": "Failed to delete message."}), 500
-
-# This part runs the Flask app when api_server.py is executed directly (e.g., by Gunicorn)
-if __name__ == '__main__':
-    flask_logger.info(f"Flask API running on port {INTERNAL_PORT}")
-    app.run(host='0.0.0.0', port=INTERNAL_PORT, debug=False)
-
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute(f"DELETE FROM {table_name} WHERE id = ?", (message_id,))
+            self.conn.commit()
+            return cursor.rowcount > 0 # True if a row was deleted
+        except sqlite3.Error as e:
+            logger.error(f"Error deleting message ID {message_id} from {table_name}: {e}")
+            return False
+        finally:
+            self._close()
