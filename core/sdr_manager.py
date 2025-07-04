@@ -1,5 +1,5 @@
 # HFGCSpy/core/sdr_manager.py
-# Version: 2.0.10 # Version bump for fixed init assignments and using RtlSdr.get_devices
+# Version: 2.0.11 # Version bump for fixed init assignments and using find_devices
 
 import numpy as np
 import logging
@@ -28,8 +28,8 @@ class SDRManager:
         """
         devices = []
         try:
-            # Attempt to use RtlSdr.get_devices() as a static method
-            sdr_devices = rtlsdr.RtlSdr.get_devices() 
+            # Attempt to use rtlsdr.find_devices()
+            sdr_devices = rtlsdr.find_devices() 
             for dev in sdr_devices:
                 devices.append(dev.serial_number)
             logger.info(f"Detected {len(devices)} SDR devices: {devices}")

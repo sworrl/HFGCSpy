@@ -1,249 +1,298 @@
 # HFGCSpy/api_server.py
-# Flask API server for HFGCSpy, runs inside the Docker container.
-# This API serves data to the web UI and handles configuration updates.
-# Version: 2.0.0
+# Version: 1.0.1 # Version bump for config loading and basic routes
 
-import os
-import sys
-import json
-import configparser
-import logging
 from flask import Flask, jsonify, request, send_from_directory
+import logging
+import os
+import configparser
 from datetime import datetime
+import json
 
-# Add parent directory to path to allow importing core modules
-# This assumes /app is the working directory inside the Docker container
-sys.path.append(os.path.join(os.path.dirname(__file__), 'core'))
+# Import DataStore and SDRManager from core
+from core.data_store import DataStore
+from core.sdr_manager import SDRManager
 
-from data_store import DataStore
-from sdr_manager import SDRManager # For listing detected SDRs
+# --- Logging Configuration ---
+# This needs to be set up before Flask app creation to ensure Flask uses it
+log_file_path = "/app/logs/hfgcspy.log" # Default path, will be updated from config
+if not os.path.exists(os.path.dirname(log_file_path)):
+    os.makedirs(os.path.dirname(log_file_path), exist_ok=True)
+
+logging.basicConfig(level=logging.INFO,
+                    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+                    handlers=[
+                        logging.FileHandler(log_file_path),
+                        logging.StreamHandler()
+                    ])
+logger = logging.getLogger(__name__)
+
+app = Flask(__name__)
 
 # --- Configuration Loading ---
-config = configparser.ConfigParser()
-CONFIG_FILE_PATH = "/app/config.ini" # Path inside Docker container
-CONFIG_JSON_FILE_PATH = "/app/data/hfgcspy_data/config.json" # Path inside Docker container for UI to read
+# Paths are relative to the container's /app directory unless specified otherwise
+CONFIG_FILE_PATH = "/app/config.ini" # This is the mounted config.ini from host
 
-try:
-    config.read(CONFIG_FILE_PATH)
-    DB_PATH = config.get('app', 'database_path', fallback='/app/data/hfgcspy.db')
-    LOG_FILE = config.get('logging', 'log_file', fallback='/app/logs/hfgcspy.log')
-    INTERNAL_PORT = config.get('app', 'internal_port', fallback='8002')
-    RECORDINGS_DIR = config.get('app_paths', 'recordings_dir', fallback='/app/data/recordings')
+# Global variables for paths, initialized to None or defaults
+STATUS_FILE = None
+MESSAGES_FILE = None
+RECORDINGS_DIR = None
+CONFIG_JSON_FILE = None # For frontend config
+INTERNAL_PORT = None
+DB_PATH = None
 
-except configparser.Error as e:
-    print(f"ERROR: Could not read config.ini in api_server: {e}. Using default paths.")
-    DB_PATH = '/app/data/hfgcspy.db'
-    LOG_FILE = '/app/logs/hfgcspy.log'
-    INTERNAL_PORT = '8002'
-    RECORDINGS_DIR = '/app/data/recordings'
+def load_config_paths():
+    global STATUS_FILE, MESSAGES_FILE, RECORDINGS_DIR, CONFIG_JSON_FILE, INTERNAL_PORT, DB_PATH
+    config = configparser.ConfigParser()
+    
+    if not os.path.exists(CONFIG_FILE_PATH):
+        logger.error(f"Config file not found at {CONFIG_FILE_PATH}. Using default paths.")
+        # Fallback to hardcoded defaults if config.ini doesn't exist or isn't mounted
+        # These should match the defaults in setup.py's configure_hfgcspy_app
+        STATUS_FILE = "/app/data/hfgcspy_data/status.json"
+        MESSAGES_FILE = "/app/data/hfgcspy_data/messages.json"
+        RECORDINGS_DIR = "/app/data/hfgcspy_data/recordings"
+        CONFIG_JSON_FILE = "/app/data/hfgcspy_data/config.json"
+        INTERNAL_PORT = 8002
+        DB_PATH = "/app/data/hfgcspy.db"
+        return False
 
-# --- Logging Setup for Flask API ---
-# Use a separate logger for Flask API if desired, or share with main app logger
-logging.basicConfig(
-    level=logging.INFO, # Default to INFO for API logs
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler(LOG_FILE), # Log to the same file as main app
-        logging.StreamHandler(sys.stdout)
-    ]
-)
-flask_logger = logging.getLogger('HFGCSpy.API')
-flask_logger.info("HFGCSpy Flask API server starting...")
+    try:
+        config.read(CONFIG_FILE_PATH)
+        
+        # Paths from config.ini are relative to the container's /app
+        # For mounted volumes, these paths need to reflect the *container's* view
+        app_paths_section = config['app_paths'] if 'app_paths' in config else {}
+        app_section = config['app'] if 'app' in config else {}
+        logging_section = config['logging'] if 'logging' in config else {}
 
+        STATUS_FILE = app_paths_section.get('status_file', "/app/data/hfgcspy_data/status.json")
+        MESSAGES_FILE = app_paths_section.get('messages_file', "/app/data/hfgcspy_data/messages.json")
+        RECORDINGS_DIR = app_paths_section.get('recordings_dir', "/app/data/hfgcspy_data/recordings")
+        CONFIG_JSON_FILE = app_paths_section.get('config_json_file', "/app/data/hfgcspy_data/config.json")
+        INTERNAL_PORT = int(app_section.get('internal_port', 8002))
+        DB_PATH = app_section.get('database_path', "/app/data/hfgcspy.db")
 
-# Initialize Flask app
-app = Flask(__name__, 
-            static_folder='/app/web_ui', # Static files for web UI (served by Apache, but Flask can serve for dev)
-            template_folder='/app/web_ui') # Templates for web UI (not used much if JS renders)
+        # Update logger to use path from config.ini
+        new_log_file_path = logging_section.get('log_file', "/app/logs/hfgcspy.log")
+        if new_log_file_path != log_file_path:
+            # Reconfigure logging to the new path
+            for handler in logging.root.handlers[:]:
+                logging.root.removeHandler(handler)
+            logging.basicConfig(level=logging.INFO,
+                                format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+                                handlers=[
+                                    logging.FileHandler(new_log_file_path),
+                                    logging.StreamHandler()
+                                ])
+            logger.info(f"Logging reconfigured to: {new_log_file_path}")
 
-# Initialize DataStore
-data_store = DataStore(DB_PATH)
+        logger.info("Configuration paths loaded successfully.")
+        return True
+    except Exception as e:
+        logger.error(f"Error loading configuration from {CONFIG_FILE_PATH}: {e}", exc_info=True)
+        return False
+
+# Load config paths at startup
+load_config_paths()
+
+# Ensure data directories exist within the container
+os.makedirs(os.path.dirname(STATUS_FILE), exist_ok=True)
+os.makedirs(RECORDINGS_DIR, exist_ok=True)
+os.makedirs(os.path.dirname(CONFIG_JSON_FILE), exist_ok=True)
+
+# Initialize DataStore after config is loaded
+data_store = DataStore(db_path=DB_PATH)
 data_store.initialize_db()
 
-# --- API Endpoints ---
+# Initialize SDRManager (device_identifier will be set via config later)
+sdr_manager = SDRManager()
+
+# --- Utility Functions ---
+def update_status_file(status_data):
+    try:
+        with open(STATUS_FILE, 'w') as f:
+            json.dump(status_data, f, indent=4)
+        logger.debug("Status file updated.")
+    except Exception as e:
+        logger.error(f"Error updating status file {STATUS_FILE}: {e}")
+
+def get_current_status():
+    status = {
+        "hfgcs_service": "Stopped",
+        "js8_service": "Stopped",
+        "sdr_devices": {},
+        "online_sdrs": {},
+        "current_frequency": 0,
+        "signal_power": 0,
+        "last_updated": datetime.now().isoformat()
+    }
+    
+    # Attempt to read existing status
+    if os.path.exists(STATUS_FILE):
+        try:
+            with open(STATUS_FILE, 'r') as f:
+                existing_status = json.load(f)
+                status.update(existing_status)
+        except Exception as e:
+            logger.warning(f"Could not read existing status file: {e}")
+
+    # Update SDR device status dynamically
+    sdr_serials = sdr_manager.list_sdr_devices_serials()
+    for serial in sdr_serials:
+        status["sdr_devices"][serial] = "Detected" # Or "Active" if actively scanning
+
+    # Placeholder for actual service states and SDR parameters
+    # In a real implementation, these would come from the running SDR threads/processes
+    
+    return status
+
+# --- Flask Routes ---
 
 @app.route('/')
 def index():
-    """Serves the main HFGCSpy web dashboard HTML."""
-    # This endpoint is primarily for direct access during development/testing.
-    # In production, Apache2 will serve index.html directly.
-    return send_from_directory('/app/web_ui', 'index.html')
+    # Serve the index.html from the root of the app
+    # Assumes index.html is in the /app directory (Docker WORKDIR)
+    return send_from_directory('/app', 'index.html')
 
-@app.route('/styles.css')
-def serve_styles():
-    return send_from_directory('/app/web_ui', 'styles.css')
-
-@app.route('/script.js')
-def serve_script():
-    return send_from_directory('/app/web_ui', 'script.js')
-
-@app.route('/recordings/<path:filename>')
-def serve_recording(filename):
-    """Serves recorded audio files."""
-    return send_from_directory(RECORDINGS_DIR, filename)
-
-
-@app.route('/hfgcspy-api/status')
+@app.route('/hfgcspy-api/status', methods=['GET'])
 def get_status():
-    """Returns the current status of the HFGCSpy application and detected SDRs."""
-    status_data = {
-        "hfgcs_service": "Running", # These will be updated by main hfgcs.py loop
-        "js8_service": "Running",
-        "adsb_service": "Running",
-        "sdr_devices": {}, # Operational status of SDRs managed by main loop
-        "detected_sdr_devices": SDRManager.list_sdr_devices_serials(), # Live detection
-        "selected_sdr_devices": [], # From config, will be updated by main loop
-        "app_version": config.get('app', 'version', fallback='N/A'), # Get version from config
-        "last_updated": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    }
-    # Read actual status from a file written by hfgcs.py if needed, for now use dummy
-    try:
-        with open(STATUS_FILE, 'r') as f:
-            live_status = json.load(f)
-            status_data.update(live_status)
-    except FileNotFoundError:
-        flask_logger.warn(f"Status file {STATUS_FILE} not found. Using default status.")
-    except json.JSONDecodeError:
-        flask_logger.error(f"Error decoding status file {STATUS_FILE}. Using default status.")
-    
-    flask_logger.debug(f"API status requested: {status_data}")
-    return jsonify(status_data)
+    status = get_current_status()
+    # Placeholder for actual SDR status, freq, power
+    # This would be updated by background SDR scanning threads
+    return jsonify(status)
 
-@app.route('/hfgcspy-api/messages')
+@app.route('/hfgcspy-api/messages', methods=['GET'])
 def get_messages():
-    """Retrieves recent HFGCS messages from the database."""
-    # This endpoint can be extended to take table_name and sdr_id as args
-    table_name = request.args.get('table', 'hfgcs_messages')
-    sdr_id = request.args.get('sdr_id', None)
-    limit = request.args.get('limit', config.getint('app', 'messages_per_page', fallback=50), type=int)
-
-    messages = data_store.get_recent_messages(table_name=table_name, limit=limit, sdr_id=sdr_id)
+    messages = data_store.get_recent_messages(table_name='hfgcs_messages', limit=50)
+    js8_messages = data_store.get_recent_messages(table_name='js8_messages', limit=50)
+    adsb_messages = data_store.get_recent_messages(table_name='adsb_messages', limit=50)
     
-    # Ensure timestamp is string for JSON serialization if not already
-    for msg in messages:
-        if 'timestamp' in msg and isinstance(msg['timestamp'], datetime):
-            msg['timestamp'] = msg['timestamp'].strftime("%Y-%m-%d %H:%M:%S")
-        elif 'timestamp' not in msg:
-            msg['timestamp'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        msg['table_name'] = table_name # Ensure table_name is in message for UI delete action
-
-    flask_logger.debug(f"API messages requested from {table_name}, sdr_id={sdr_id}, limit={limit}. Returning {len(messages)} messages.")
-    return jsonify(messages)
-
-
-@app.route('/hfgcspy-api/config')
-def get_config():
-    """Retrieves current configuration settings for the UI."""
-    config_data = {}
-    try:
-        # Read config.ini and export relevant parts as JSON
-        config_obj = configparser.ConfigParser()
-        config_obj.read(CONFIG_FILE_PATH)
-
-        config_data['app'] = {
-            'dark_mode': config_obj.getboolean('app', 'dark_mode', fallback=True), # Default dark mode
-            'messages_per_page': config_obj.getint('app', 'messages_per_page', fallback=50),
-            'internal_port': config_obj.get('app', 'internal_port', fallback='8002')
-        }
-        config_data['scan_services'] = {
-            'hfgcs': config_obj.get('scan_services', 'hfgcs', fallback='no'),
-            'js8': config_obj.get('scan_services', 'js8', fallback='no'),
-            'adsb': config_obj.get('scan_services', 'adsb', fallback='no')
-        }
-        config_data['sdr_selection'] = {
-            'selected_devices': [s.strip() for s in config_obj.get('sdr_selection', 'selected_devices', fallback='').split(',') if s.strip()]
-        }
-        online_sdrs_list = {}
-        if config_obj.has_section('online_sdrs'):
-            for name, url_type in config_obj.items('online_sdrs'):
-                parts = url_type.split(',', 1)
-                url = parts[0].strip()
-                sdr_type = parts[1].strip() if len(parts) > 1 else 'unknown'
-                online_sdrs_list[name] = {'url': url, 'type': sdr_type}
-        config_data['online_sdrs'] = {'list_of_sdrs': online_sdrs_list}
-
-        # Add detected SDRs from SDRManager (live data)
-        config_data['detected_sdr_devices'] = SDRManager.list_sdr_devices_serials()
-
-        # Write this JSON to a file for the UI to read (Apache serves it)
-        with open(CONFIG_JSON_FILE_PATH, 'w') as f:
-            json.dump(config_data, f, indent=4)
-        
-        flask_logger.debug(f"Config exported to {CONFIG_JSON_FILE_PATH}")
-        return jsonify(config_data)
-
-    except Exception as e:
-        flask_logger.error(f"Error getting config: {e}", exc_info=True)
-        return jsonify({"error": "Failed to load config"}), 500
-
-@app.route('/hfgcspy-api/config', methods=['POST'])
-def save_config():
-    """Receives config updates from the UI and writes them to config.ini."""
-    if not request.is_json:
-        return jsonify({"error": "Request must be JSON"}), 400
-    
-    new_config_data = request.get_json()
-    flask_logger.info(f"Received config update from UI: {new_config_data}")
-
-    try:
-        config_obj = configparser.ConfigParser()
-        config_obj.read(CONFIG_FILE_PATH) # Read current config to preserve other settings
-
-        # Update sections based on new_config_data
-        if 'app' in new_config_data:
-            if not config_obj.has_section('app'): config_obj.add_section('app')
-            for key, value in new_config_data['app'].items():
-                config_obj.set('app', key, str(value))
-        
-        if 'scan_services' in new_config_data:
-            if not config_obj.has_section('scan_services'): config_obj.add_section('scan_services')
-            for key, value in new_config_data['scan_services'].items():
-                config_obj.set('scan_services', key, str(value))
-
-        if 'sdr_selection' in new_config_data:
-            if not config_obj.has_section('sdr_selection'): config_obj.add_section('sdr_selection')
-            selected_devices_str = ','.join(new_config_data['sdr_selection'].get('selected_devices', []))
-            config_obj.set('sdr_selection', 'selected_devices', selected_devices_str)
-        
-        if 'online_sdrs' in new_config_data and 'list_of_sdrs' in new_config_data['online_sdrs']:
-            if not config_obj.has_section('online_sdrs'): config_obj.add_section('online_sdrs')
-            # Clear existing online_sdrs to rewrite
-            for option in config_obj.options('online_sdrs'):
-                config_obj.remove_option('online_sdrs', option)
-            # Add new online SDRs
-            for name, sdr_info in new_config_data['online_sdrs']['list_of_sdrs'].items():
-                config_obj.set('online_sdrs', name, f"{sdr_info['url']},{sdr_info['type']}")
-
-        with open(CONFIG_FILE_PATH, 'w') as f:
-            config_obj.write(f)
-        
-        flask_logger.info("Config.ini updated successfully from UI.")
-        # Trigger a restart of the main hfgcs.py loop to apply changes
-        # This requires hfgcs.py to expose a mechanism to restart its loop.
-        # For now, we'll just log that a restart is needed.
-        flask_logger.info("HFGCSpy service restart needed to apply new config.ini changes.")
-        return jsonify({"status": "Success", "message": "Config saved. Restart HFGCSpy service for changes to take effect."})
-
-    except Exception as e:
-        flask_logger.error(f"Error saving config: {e}", exc_info=True)
-        return jsonify({"status": "Error", "message": "Failed to save config."}), 500
+    all_messages = messages + js8_messages + adsb_messages
+    # Sort by timestamp descending
+    all_messages.sort(key=lambda x: x.get('timestamp', ''), reverse=True)
+    return jsonify(all_messages)
 
 @app.route('/hfgcspy-api/messages/<table_name>/<int:message_id>', methods=['DELETE'])
-def delete_message_api(table_name, message_id):
-    """Deletes a message from a specified table."""
-    try:
-        success = data_store.delete_message(table_name, message_id)
-        if success:
-            flask_logger.info(f"Deleted message ID {message_id} from table {table_name}.")
-            return jsonify({"status": "Success", "message": "Message deleted."})
-        else:
-            return jsonify({"status": "Error", "message": "Message not found or failed to delete."}), 404
-    except Exception as e:
-        flask_logger.error(f"Error deleting message: {e}", exc_info=True)
-        return jsonify({"status": "Error", "message": "Failed to delete message."}), 500
+def delete_message(table_name, message_id):
+    if data_store.delete_message(table_name, message_id):
+        return jsonify({"status": "Success", "message": f"Message {message_id} from {table_name} deleted."})
+    return jsonify({"status": "Error", "message": f"Failed to delete message {message_id} from {table_name}."}), 400
 
-# This part runs the Flask app when api_server.py is executed directly (e.g., by Gunicorn)
+@app.route('/hfgcspy-api/config', methods=['POST'])
+def update_config():
+    data = request.json
+    # This endpoint would typically write changes back to config.ini
+    # and then signal the background processes to reload config.
+    # For now, it's a placeholder.
+    logger.info(f"Received config update request: {data}")
+    return jsonify({"status": "Success", "message": "Config update received (not fully implemented)."})
+
+@app.route('/hfgcspy-api/decode-with-gemini', methods=['POST'])
+def decode_with_gemini():
+    # Placeholder for Gemini API call
+    data = request.json
+    message_id = data.get('message_id')
+    decoded_text = data.get('decoded_text')
+
+    if not decoded_text:
+        return jsonify({"status": "Error", "message": "No decoded text provided for Gemini analysis."}), 400
+
+    logger.info(f"Attempting Gemini decode for message ID {message_id}: {decoded_text[:50]}...")
+    
+    # --- Gemini API Call Placeholder ---
+    # This is where the actual Gemini API call would go.
+    # For now, we return a mock response.
+    #
+    # Example structure for Gemini API call (requires API key and proper setup):
+    #
+    # chatHistory = []
+    # prompt = f"Analyze the following HFGCS message and explain its likely meaning, context, and any notable elements: '{decoded_text}'"
+    # chatHistory.push({ role: "user", parts: [{ text: prompt }] });
+    # payload = { contents: chatHistory };
+    # apiKey = "" # If you want to use models other than gemini-2.0-flash, provide an API key here. Otherwise, leave this as-is.
+    # apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
+    # response = await fetch(apiUrl, {
+    #            method: 'POST',
+    #            headers: { 'Content-Type': 'application/json' },
+    #            body: JSON.stringify(payload)
+    #        });
+    # result = response.json();
+    # gemini_analysis = result.candidates[0].content.parts[0].text;
+    #
+    # ------------------------------------
+
+    mock_gemini_analysis = f"Gemini mock analysis for: '{decoded_text}'. This would be a detailed interpretation of the HFGCS code."
+    
+    # Update the database with Gemini's response
+    # This requires a new column in hfgcs_messages table: gemini_analysis_text
+    # And a method in DataStore to update it.
+    # data_store.update_hfgcs_message_gemini_analysis(message_id, mock_gemini_analysis)
+    
+    return jsonify({"status": "Success", "message": "Gemini analysis complete.", "gemini_analysis": mock_gemini_analysis})
+
+@app.route('/control_sdr', methods=['POST'])
+def control_sdr():
+    data = request.json
+    action = data.get('action')
+    sdr_id = data.get('sdr_id')
+
+    if action == 'start':
+        sdr_manager.open_sdr()
+        return jsonify({"status": "Success", "message": f"SDR {sdr_id} started."})
+    elif action == 'stop':
+        sdr_manager.close_sdr()
+        return jsonify({"status": "Success", "message": f"SDR {sdr_id} stopped."})
+    elif action == 'set_frequency':
+        frequency = float(data.get('frequency')) * 1e6 # Convert MHz to Hz
+        sdr_manager.set_frequency(frequency)
+        return jsonify({"status": "Success", "message": f"SDR {sdr_id} frequency set to {frequency/1e6} MHz."})
+    
+    return jsonify({"status": "Error", "message": "Invalid SDR control action."}), 400
+
+@app.route('/control_online_sdr', methods=['POST'])
+def control_online_sdr():
+    data = request.json
+    action = data.get('action')
+    sdr_name = data.get('sdr_name')
+    sdr_url = data.get('sdr_url')
+    sdr_type = data.get('sdr_type')
+
+    # This functionality would involve managing a list of online SDRs,
+    # potentially storing them in the config.ini or a separate DB table.
+    # For now, it's a placeholder.
+    if action == 'add':
+        logger.info(f"Adding online SDR: {sdr_name} ({sdr_url}, {sdr_type})")
+        return jsonify({"status": "Success", "message": f"Online SDR {sdr_name} added (placeholder)."})
+    elif action == 'remove':
+        logger.info(f"Removing online SDR: {sdr_name}")
+        return jsonify({"status": "Success", "message": f"Online SDR {sdr_name} removed (placeholder)."})
+    
+    return jsonify({"status": "Error", "message": "Invalid online SDR control action."}), 400
+
+# Route to serve static files (recordings, status.json, etc.)
+@app.route('/hfgcspy_data/<path:filename>')
+def serve_hfgcspy_data(filename):
+    # Ensure RECORDINGS_DIR is correctly configured
+    if not RECORDINGS_DIR:
+        load_config_paths() # Attempt to load config if not already loaded
+
+    # Security: Ensure filename is within the allowed data directory
+    # This is a basic check; more robust path validation might be needed in production
+    base_dir = os.path.dirname(STATUS_FILE) # Use the base data directory
+    
+    # Prevent directory traversal
+    abs_path = os.path.join(base_dir, filename)
+    if not os.path.abspath(abs_path).startswith(os.path.abspath(base_dir)):
+        return "Forbidden", 403
+
+    return send_from_directory(base_dir, filename)
+
+
 if __name__ == '__main__':
-    flask_logger.info(f"Flask API running on port {INTERNAL_PORT}")
-    app.run(host='0.0.0.0', port=INTERNAL_PORT, debug=False)
-
+    logger.info("HFGCSpy Flask API server starting...")
+    # This block is for direct Python execution, not for Gunicorn.
+    # Gunicorn will call the 'app' callable directly.
+    # For development, you might run app.run(host='0.0.0.0', port=INTERNAL_PORT, debug=True)
+    # However, in Docker with Gunicorn, this __main__ block is typically not executed.
+    # The Gunicorn command in Dockerfile points directly to 'api_server:app'
+    pass
