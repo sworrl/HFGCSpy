@@ -1,7 +1,7 @@
 # HFGCSpy/setup.py
 # Python-based installer for HFGCSpy application.
 # This script handles all installation, configuration, and service management.
-# Version: 2.2.15 # Version bump for Apache is-active check logic
+# Version: 2.2.16 # Version bump for Docker container name typo fix
 
 import os
 import sys
@@ -12,14 +12,14 @@ import re
 import argparse
 
 # --- Script Version ---
-__version__ = "2.2.15" # Updated version for Apache is-active check logic
+__version__ = "2.2.16" # Updated version for Docker container name typo fix
 
 # --- Configuration Constants (Defined directly in setup.py) ---
 # All constants are now embedded directly in this file to avoid import issues.
 HFGCSPY_REPO = "https://github.com/sworrl/HFGCSpy.git" # IMPORTANT: Ensure this is correct!
 HFGCSPY_SERVICE_NAME = "hfgcspy_docker.service" # Service name is constant
 HFGCSPY_DOCKER_IMAGE_NAME = "hfgcspy_image"
-HFGCSPY_DOCKER_CONTAINer_NAME = "hfgcspy_app"
+HFGCSPY_DOCKER_CONTAINER_NAME = "hfgcspy_app" # Corrected typo here
 HFGCSPY_INTERNAL_PORT = "8002" # Port for Flask/Gunicorn INSIDE Docker container
 
 # Default installation paths on the HOST system
