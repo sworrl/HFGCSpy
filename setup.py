@@ -1,7 +1,7 @@
 # HFGCSpy/setup.py
 # Python-based installer for HFGCSpy application.
 # This script handles all installation, configuration, and service management.
-# Version: 2.2.37 # Version bump for sdr_manager.py enhancements
+# Version: 2.2.40 # Version bump for forcing Docker pip install layer rebuild
 
 import os
 import sys
@@ -13,7 +13,7 @@ import argparse
 import time # Import time module for sleep
 
 # --- Script Version ---
-__version__ = "2.2.37" # Updated version for sdr_manager.py enhancements
+__version__ = "2.2.40" # Updated version for forcing Docker pip install layer rebuild
 
 # --- Configuration Constants (Defined directly in setup.py) ---
 # All constants are now embedded directly in this file to avoid import issues.
@@ -246,6 +246,12 @@ def build_and_run_docker_container():
     log_info(f"Building Docker image '{HFGCSPY_DOCKER_IMAGE_NAME}' for HFGCSpy...")
     current_dir = os.getcwd()
     os.chdir(HFGCSpy_APP_DIR) # Change to app dir to build Dockerfile
+    
+    # Force requirements.txt to change to invalidate Docker cache for pip install layer
+    req_path = os.path.join(HFGCSpy_APP_DIR, "requirements.txt")
+    with open(req_path, "a") as f:
+        f.write(f"\n# Build-time unique identifier: {time.time()}\n")
+
     # Added --no-cache to force a fresh build
     run_command(f"docker build --no-cache -t {HFGCSPY_DOCKER_IMAGE_NAME} .", shell=True)
     os.chdir(current_dir) # Change back
@@ -402,7 +408,7 @@ def update_hfgcspy_app_code():
     if not os.path.exists(HFGCSpy_APP_DIR):
         log_error(f"HFGCSpy application directory {HFGCSpy_APP_DIR} not found. Please run --install first.")
     
-    log_info(f"Pulling latest changes from HFGCSpy repository in {HFGCSpy_APP_DIR}...")
+    log_info(f"Pulling latest changes from {HFGCSPY_REPO} in {HFGCSpy_APP_DIR}...")
     current_dir = os.getcwd() 
     os.chdir(HFGCSpy_APP_DIR) 
     run_command(["git", "pull"])
