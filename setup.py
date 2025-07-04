@@ -1,7 +1,7 @@
 # HFGCSpy/setup.py
 # Python-based installer for HFGCSpy application.
 # This script handles all installation, configuration, and service management.
-# Version: 2.2.24 # Version bump for removing all Apache-related setup
+# Version: 2.2.26 # Version bump for increased Docker startup delay and explicit log check
 
 import os
 import sys
@@ -10,9 +10,10 @@ import configparser
 import shutil
 import re
 import argparse
+import time # Import time module for sleep
 
 # --- Script Version ---
-__version__ = "2.2.24" # Updated version for removing Apache setup
+__version__ = "2.2.26" # Updated version for increased Docker startup delay and explicit log check
 
 # --- Configuration Constants (Defined directly in setup.py) ---
 # All constants are now embedded directly in this file to avoid import issues.
@@ -255,6 +256,18 @@ def build_and_run_docker_container():
         HFGCSPY_DOCKER_IMAGE_NAME
     ])
     log_info(f"Docker container '{HFGCSPY_DOCKER_CONTAINER_NAME}' started.")
+
+    # --- New: Verify Docker container is running ---
+    log_info(f"Verifying Docker container '{HFGCSPY_DOCKER_CONTAINER_NAME}' is running...")
+    # Give Docker a moment to fully start the container process
+    time.sleep(5) 
+    container_status = run_command(f"docker inspect -f '{{.State.Status}}' {HFGCSPY_DOCKER_CONTAINER_NAME}", shell=True, capture_output=True)
+    
+    if container_status == "running":
+        log_info(f"Docker container '{HFGCSPY_DOCKER_CONTAINER_NAME}' is active and running.")
+    else:
+        log_error(f"Docker container '{HFGCSPY_DOCKER_CONTAINER_NAME}' is not running. Current status: {container_status}. "
+                  f"Please check container logs for details: 'docker logs {HFGCSPY_DOCKER_CONTAINER_NAME}'")
 
 
 def configure_hfgcspy_app():
@@ -506,7 +519,7 @@ def main():
 
 
     # Process arguments
-    if len(sys.argv) == 1:
+    if len(sys.argv) == 1: # Corrected from len(sys.argv == 1) to len(sys.argv) == 1
         parser.print_help()
         sys.exit(0)
 
@@ -524,6 +537,7 @@ def main():
 
         # --- Display Connection Strings (only Docker related) ---
         log_info("\n--- HFGCSpy Access Information ---")
+        log_info(f"Web UI (via Docker directly): http://127.0.0.1:{HFGCSPY_INTERNAL_PORT}/")
         log_info(f"Docker API (local only for debugging): http://127.0.0.1:{HFGCSPY_INTERNAL_PORT}/hfgcspy-api/status")
         log_info("----------------------------------")
 
