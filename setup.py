@@ -1,7 +1,7 @@
 # HFGCSpy/setup.py
 # Python-based installer for HFGCSpy application.
 # This script handles all installation, configuration, and service management.
-# Version: 2.2.14 # Version bump for Apache restart fix (SSL permissions) and improved error logging
+# Version: 2.2.15 # Version bump for Apache is-active check logic
 
 import os
 import sys
@@ -12,14 +12,14 @@ import re
 import argparse
 
 # --- Script Version ---
-__version__ = "2.2.14" # Updated version for Apache restart fix
+__version__ = "2.2.15" # Updated version for Apache is-active check logic
 
 # --- Configuration Constants (Defined directly in setup.py) ---
 # All constants are now embedded directly in this file to avoid import issues.
 HFGCSPY_REPO = "https://github.com/sworrl/HFGCSpy.git" # IMPORTANT: Ensure this is correct!
 HFGCSPY_SERVICE_NAME = "hfgcspy_docker.service" # Service name is constant
 HFGCSPY_DOCKER_IMAGE_NAME = "hfgcspy_image"
-HFGCSPY_DOCKER_CONTAINER_NAME = "hfgcspy_app"
+HFGCSPY_DOCKER_CONTAINer_NAME = "hfgcspy_app"
 HFGCSPY_INTERNAL_PORT = "8002" # Port for Flask/Gunicorn INSIDE Docker container
 
 # Default installation paths on the HOST system
@@ -319,13 +319,15 @@ def configure_apache2_webui():
     log_info("Configuring Apache2 to serve HFGCSpy's web UI and proxy to Docker container...")
 
     log_info("Ensuring Apache2 is installed and enabled...")
-    try:
-        run_command(["systemctl", "is-active", "--quiet", "apache2"])
-    except subprocess.CalledProcessError:
-        log_info("Apache2 not running. Installing...")
+    # Check if apache2 is active. If not, install/enable/start it.
+    apache_status_check = run_command(["systemctl", "is-active", "--quiet", "apache2"], check_return=False)
+    if apache_status_check.returncode != 0: # If apache2 is not active (exit code 0 means active)
+        log_info("Apache2 not running. Installing and starting...")
         run_command(["apt", "install", "-y", "apache2"])
         run_command(["systemctl", "enable", "apache2"])
         run_command(["systemctl", "start", "apache2"])
+    else:
+        log_info("Apache2 is already running.")
     
     log_info("Enabling Apache2 modules: headers, ssl, proxy, proxy_http...")
     run_command("a2enmod headers ssl proxy proxy_http", shell=True, check_return=False)
@@ -461,7 +463,7 @@ def configure_apache2_webui():
     </Directory>
 
     ProxyPass /hfgcspy-api/ http://127.0.0.1:{HFGCSPY_INTERNAL_PORT}/
-    ProxyPassReverse /hfgcspy-api/ http://127.0.0.1:{HFGCSPY_INTERNAL_PORT}/
+    ProxyPassReverse http://127.0.0.1:{HFGCSPY_INTERNAL_PORT}/
 
     # Alias for data directory
     Alias /hfgcspy_data "{HFGCSpy_DATA_DIR}"
@@ -492,8 +494,9 @@ def configure_apache2_webui():
         log_info("HTTPS will not be configured automatically. Web UI will be available via HTTP only.")
 
     with open(apache_conf_path, "w") as f:
-        config_obj.write(f) # Changed from apache_conf_content to config_obj.write(f)
-        f.write(apache_conf_content) # Write the content after config_obj
+        # It seems there was a mix-up here. We should write the apache_conf_content directly.
+        # config_obj.write(f) is for writing a ConfigParser object, not raw string content.
+        f.write(apache_conf_content) 
 
     # Removed the a2dissite 000-default.conf command as per user request
     run_command(["a2ensite", os.path.basename(apache_conf_path)])
