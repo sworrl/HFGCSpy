@@ -1,8 +1,9 @@
 # HFGCSpy/core/sdr_manager.py
-# Version: 2.0.3 # Version bump for definitive get_devices import fix
+# Version: 2.0.5 # Version bump for definitive get_devices import fix (standard import)
 
 import numpy as np
-from rtlsdr import RtlSdr, get_devices # Corrected import path for get_devices
+# Reverting to the standard import path for get_devices
+from rtlsdr import RtlSdr, get_devices 
 import logging
 import time # For potential delays in error recovery
 
@@ -13,9 +14,13 @@ class SDRManager:
         self.sdr = None
         self.device_identifier = device_identifier # Can be int index or string serial
         self.sample_rate = sample_rate
+        # self.sdr.sample_rate = self.sample_rate # These lines should be set after sdr object creation
         self.center_freq = center_freq
+        # self.sdr.center_freq = self.center_freq # These lines should be set after sdr object creation
         self.gain = gain
+        # self.sdr.gain = self.gain # These lines should be set after sdr object creation
         self.ppm_correction = ppm_correction
+        # self.sdr.freq_correction = self.ppm_correction # These lines should be set after sdr object creation
         self._is_open = False # Track SDR open state
 
     @staticmethod
@@ -45,10 +50,12 @@ class SDRManager:
             else:
                 self.sdr = RtlSdr(self.device_identifier)
 
+            # Set parameters after SDR object is created
             self.sdr.sample_rate = self.sample_rate
             self.sdr.center_freq = self.center_freq
             self.sdr.gain = self.gain
             self.sdr.freq_correction = self.ppm_correction
+            
             self._is_open = True
             logger.info(f"SDR opened: Device='{self.device_identifier}' (Serial: {self.sdr.serial_number if hasattr(self.sdr, 'serial_number') else 'N/A'}), Sample Rate={self.sdr.sample_rate/1e6:.2f} Msps, "
                         f"Center Freq={self.sdr.center_freq/1e6:.3f} MHz, "
