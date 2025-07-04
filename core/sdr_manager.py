@@ -1,12 +1,13 @@
 # HFGCSpy/core/sdr_manager.py
-# Version: 2.0.13 # Version bump for using rtlsdr.util.find_devices
+# Version: 2.0.14 # Version bump for dynamic rtlsdr device discovery
 
 import numpy as np
 import logging
 import time # For potential delays in error recovery
 
-# Import the entire rtlsdr module for robust access to its utilities
-import rtlsdr 
+# Import the main RtlSdr class. We will dynamically find get_devices/find_devices.
+from rtlsdr import RtlSdr 
+# No longer attempting to import get_devices or util directly at module level
 
 logger = logging.getLogger(__name__)
 
@@ -24,22 +25,61 @@ class SDRManager:
     def list_sdr_devices_serials():
         """
         Lists available RTL-SDR devices by their serial numbers.
+        This method attempts various ways to find the device listing function.
         Returns a list of strings (serial numbers).
         """
         devices = []
+        sdr_device_getter = None
+
+        # Attempt 1: rtlsdr.get_devices() (most common for modern pyrtlsdr)
         try:
-            # Attempt to use rtlsdr.util.find_devices() as the most robust method
-            sdr_devices = rtlsdr.util.find_devices() 
-            for dev in sdr_devices:
-                # Ensure dev object has a serial_number attribute
-                if hasattr(dev, 'serial_number'):
-                    devices.append(dev.serial_number)
-                else:
-                    logger.warning(f"Detected SDR device without serial_number attribute: {dev}")
-            logger.info(f"Detected {len(devices)} SDR devices: {devices} using rtlsdr.util.find_devices().")
+            import rtlsdr # Re-import locally to ensure module-level access
+            if hasattr(rtlsdr, 'get_devices'):
+                sdr_device_getter = rtlsdr.get_devices
+                logger.debug("Using rtlsdr.get_devices() for device listing.")
+        except AttributeError:
+            pass # Try next method
         except Exception as e:
-            logger.critical(f"CRITICAL ERROR: Failed to list SDR devices using rtlsdr.util.find_devices(). "
-                            f"This indicates a core issue with pyrtlsdr installation or device access: {e}", exc_info=True)
+            logger.warning(f"rtlsdr.get_devices() failed with unexpected error: {e}")
+
+        # Attempt 2: rtlsdr.RtlSdr.get_devices() (static method)
+        if sdr_device_getter is None:
+            try:
+                if hasattr(RtlSdr, 'get_devices'):
+                    sdr_device_getter = RtlSdr.get_devices
+                    logger.debug("Using rtlsdr.RtlSdr.get_devices() for device listing.")
+            except AttributeError:
+                pass # Try next method
+            except Exception as e:
+                logger.warning(f"rtlsdr.RtlSdr.get_devices() failed with unexpected error: {e}")
+
+        # Attempt 3: rtlsdr.util.find_devices() (older/utility submodule)
+        if sdr_device_getter is None:
+            try:
+                import rtlsdr.util # Try importing the util submodule
+                if hasattr(rtlsdr.util, 'find_devices'):
+                    sdr_device_getter = rtlsdr.util.find_devices
+                    logger.debug("Using rtlsdr.util.find_devices() for device listing.")
+            except (ImportError, AttributeError):
+                pass # No more methods to try
+            except Exception as e:
+                logger.warning(f"rtlsdr.util.find_devices() failed with unexpected error: {e}")
+
+        if sdr_device_getter:
+            try:
+                sdr_devices = sdr_device_getter()
+                for dev in sdr_devices:
+                    # Ensure dev object has a serial_number attribute
+                    if hasattr(dev, 'serial_number'):
+                        devices.append(dev.serial_number)
+                    else:
+                        logger.warning(f"Detected SDR device without serial_number attribute: {dev}")
+                logger.info(f"Successfully detected {len(devices)} SDR devices: {devices}.")
+            except Exception as e:
+                logger.critical(f"CRITICAL ERROR: Found a device listing function but it failed to execute: {e}", exc_info=True)
+        else:
+            logger.critical("CRITICAL ERROR: Could not find any suitable SDR device listing function in 'rtlsdr'. "
+                            "This indicates a severe incompatibility or broken installation of pyrtlsdr.")
         return devices
 
     def open_sdr(self):
@@ -50,9 +90,9 @@ class SDRManager:
         try:
             # Use RtlSdr from the imported rtlsdr module
             if isinstance(self.device_identifier, str):
-                self.sdr = rtlsdr.RtlSdr(serial_number=self.device_identifier)
+                self.sdr = RtlSdr(serial_number=self.device_identifier)
             else:
-                self.sdr = rtlsdr.RtlSdr(self.device_identifier)
+                self.sdr = RtlSdr(self.device_identifier)
 
             # Set parameters after SDR object is created and confirmed
             self.sdr.sample_rate = self.sample_rate
