@@ -1,11 +1,11 @@
 # HFGCSpy/core/sdr_manager.py
-# Version: 2.0.11 # Version bump for fixed init assignments and using find_devices
+# Version: 2.0.13 # Version bump for using rtlsdr.util.find_devices
 
 import numpy as np
 import logging
 import time # For potential delays in error recovery
 
-# Import the entire rtlsdr module for more robust access to get_devices/find_devices
+# Import the entire rtlsdr module for robust access to its utilities
 import rtlsdr 
 
 logger = logging.getLogger(__name__)
@@ -28,23 +28,18 @@ class SDRManager:
         """
         devices = []
         try:
-            # Attempt to use rtlsdr.get_devices() first (most common for newer versions)
-            # This is the most common and preferred method.
-            sdr_devices = rtlsdr.get_devices() 
+            # Attempt to use rtlsdr.util.find_devices() as the most robust method
+            sdr_devices = rtlsdr.util.find_devices() 
             for dev in sdr_devices:
-                devices.append(dev.serial_number)
-            logger.info(f"Detected {len(devices)} SDR devices: {devices} using rtlsdr.get_devices().")
-        except AttributeError:
-            # Fallback to rtlsdr.RtlSdr.get_devices() if rtlsdr.get_devices() fails
-            try:
-                sdr_devices = rtlsdr.RtlSdr.get_devices()
-                for dev in sdr_devices:
+                # Ensure dev object has a serial_number attribute
+                if hasattr(dev, 'serial_number'):
                     devices.append(dev.serial_number)
-                logger.info(f"Detected {len(devices)} SDR devices: {devices} using rtlsdr.RtlSdr.get_devices().")
-            except Exception as e:
-                logger.error(f"Error listing SDR devices (tried both module-level and class-level get_devices): {e}", exc_info=True)
+                else:
+                    logger.warning(f"Detected SDR device without serial_number attribute: {dev}")
+            logger.info(f"Detected {len(devices)} SDR devices: {devices} using rtlsdr.util.find_devices().")
         except Exception as e:
-            logger.error(f"General error listing SDR devices: {e}", exc_info=True)
+            logger.critical(f"CRITICAL ERROR: Failed to list SDR devices using rtlsdr.util.find_devices(). "
+                            f"This indicates a core issue with pyrtlsdr installation or device access: {e}", exc_info=True)
         return devices
 
     def open_sdr(self):
