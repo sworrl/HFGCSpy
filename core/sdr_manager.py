@@ -1,5 +1,5 @@
 # HFGCSpy/core/sdr_manager.py
-# Version: 2.0.8 # Version bump for more robust rtlsdr import and init logic
+# Version: 2.0.9 # Version bump for fixed SDR parameter assignment and robust import
 
 import numpy as np
 import logging
