@@ -1,7 +1,7 @@
 # HFGCSpy/setup.py
 # Python-based installer for HFGCSpy application.
 # This script handles all installation, configuration, and service management.
-# Version: 2.2.27 # Version bump for robust Docker container status check
+# Version: 2.2.29 # Version bump for comprehensive post-install diagnostics
 
 import os
 import sys
@@ -13,7 +13,7 @@ import argparse
 import time # Import time module for sleep
 
 # --- Script Version ---
-__version__ = "2.2.27" # Updated version for robust Docker container status check
+__version__ = "2.2.29" # Updated version for comprehensive post-install diagnostics
 
 # --- Configuration Constants (Defined directly in setup.py) ---
 # All constants are now embedded directly in this file to avoid import issues.
@@ -266,6 +266,9 @@ def build_and_run_docker_container():
 
     if container_status == "running":
         log_info(f"Docker container '{HFGCSPY_DOCKER_CONTAINER_NAME}' is active and running.")
+        # Automatically show Docker logs if container is running
+        log_info(f"Displaying Docker container logs for '{HFGCSPY_DOCKER_CONTAINER_NAME}':")
+        run_command(f"docker logs {HFGCSPY_DOCKER_CONTAINER_NAME}", shell=True, check_return=False) # Don't exit if logs have errors
     else:
         log_error(f"Docker container '{HFGCSPY_DOCKER_CONTAINER_NAME}' is not running. Current status: {container_status}. "
                   f"Please check container logs for details: 'docker logs {HFGCSPY_DOCKER_CONTAINER_NAME}'")
@@ -540,6 +543,29 @@ def main():
         log_info("\n--- HFGCSpy Access Information ---")
         log_info(f"Web UI (via Docker directly): http://127.0.0.1:{HFGCSPY_INTERNAL_PORT}/")
         log_info(f"Docker API (local only for debugging): http://127.0.0.1:{HFGCSPY_INTERNAL_PORT}/hfgcspy-api/status")
+        
+        log_info("\n--- Post-Installation Diagnostic Report ---")
+        log_info(f"Verifying Docker container '{HFGCSPY_DOCKER_CONTAINER_NAME}' status...")
+        container_status_output = run_command(f"docker inspect -f '{{{{.State.Status}}}}' {HFGCSPY_DOCKER_CONTAINER_NAME}", shell=True, capture_output=True)
+        container_status = container_status_output.strip()
+        log_info(f"Container '{HFGCSPY_DOCKER_CONTAINER_NAME}' status: {container_status}")
+
+        log_info("\nShowing active Docker containers ('docker ps'):")
+        run_command("docker ps", shell=True, check_return=False)
+
+        log_info(f"\nShowing Docker container stats for '{HFGCSPY_DOCKER_CONTAINER_NAME}' ('docker stats --no-stream'):")
+        run_command(f"docker stats {HFGCSPY_DOCKER_CONTAINER_NAME} --no-stream", shell=True, check_return=False)
+
+        log_info(f"\nShowing listening ports on host ('sudo netstat -tulnp | grep {HFGCSPY_INTERNAL_PORT}'):")
+        run_command(f"sudo netstat -tulnp | grep {HFGCSPY_INTERNAL_PORT}", shell=True, check_return=False)
+
+        log_info(f"\nAttempting curl to Web UI root (http://127.0.0.1:{HFGCSPY_INTERNAL_PORT}/):")
+        run_command(f"curl http://127.0.0.1:{HFGCSPY_INTERNAL_PORT}/", shell=True, check_return=False)
+
+        log_info(f"\nAttempting curl to API status (http://127.0.0.1:{HFGCSPY_INTERNAL_PORT}/hfgcspy-api/status):")
+        run_command(f"curl http://127.0.0.1:{HFGCSPY_INTERNAL_PORT}/hfgcspy-api/status", shell=True, check_return=False)
+        
+        log_info("\n**IMPORTANT:** If you are still unable to access the web UI, please review the 'Post-Installation Diagnostic Report' above, and if necessary, run 'docker logs hfgcspy_app' for detailed application logs.")
         log_info("----------------------------------")
 
     elif args.run:
