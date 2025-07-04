@@ -1,7 +1,7 @@
 # HFGCSpy/setup.py
 # Python-based installer for HFGCSpy application.
 # This script handles all installation, configuration, and service management.
-# Version: 2.2.23 # Version bump for definitive Apache Alias removal (final fix)
+# Version: 2.2.24 # Version bump for removing all Apache-related setup
 
 import os
 import sys
@@ -12,7 +12,7 @@ import re
 import argparse
 
 # --- Script Version ---
-__version__ = "2.2.23" # Updated version for definitive Apache Alias removal
+__version__ = "2.2.24" # Updated version for removing Apache setup
 
 # --- Configuration Constants (Defined directly in setup.py) ---
 # All constants are now embedded directly in this file to avoid import issues.
@@ -24,7 +24,7 @@ HFGCSPY_INTERNAL_PORT = "8002" # Port for Flask/Gunicorn INSIDE Docker container
 
 # Default installation paths on the HOST system
 APP_DIR_DEFAULT = "/opt/hfgcspy" # Where the git repo is cloned on host
-WEB_ROOT_DIR_DEFAULT = "/var/www/html/hfgcspy" # Where static web UI files are copied
+WEB_ROOT_DIR_DEFAULT = "/var/www/html/hfgcspy" # Where static web UI files are copied (still defined for consistency, but not used for Apache)
 DOCKER_VOLUME_NAME = "hfgcspy_data_vol" # Docker volume for SQLite DB and recordings
 
 # --- Global Path Variables (Initialized to None, will be set by _set_global_paths_runtime) ---
@@ -35,7 +35,7 @@ HFGCSpy_APP_DIR = None
 HFGCSpy_VENV_DIR = None 
 HFGCSpy_CONFIG_FILE = None
 
-WEB_ROOT_DIR = None
+WEB_ROOT_DIR = None # No longer directly used for serving, but kept for consistency with data paths
 HFGCSPY_DATA_DIR = None
 HFGCSPY_RECORDINGS_PATH = None
 HFGCSPY_CONFIG_JSON_PATH = None
@@ -183,10 +183,11 @@ def install_docker():
 def install_system_dependencies():
     log_info("Updating package lists and installing core system dependencies...")
     run_command("apt update", shell=True)
+    # Removed apache2 from this list
     run_command([
         "apt", "install", "-y", 
-        "git", "python3", "python3-venv", "build-essential", # python3-pip, curl, gnupg, lsb-release already handled by Docker install
-        "libusb-1.0-0-dev", "libatlas-base-dev", "libopenblas-dev", "net-tools", "apache2"
+        "git", "python3", "python3-venv", "build-essential", 
+        "libusb-1.0-0-dev", "libatlas-base-dev", "libopenblas-dev", "net-tools"
     ])
 
     log_info("Installing rtl-sdr tools...")
@@ -315,186 +316,9 @@ def configure_hfgcspy_app():
 
     log_info("HFGCSpy application configured.")
 
-def configure_apache2_webui():
-    log_info("Configuring Apache2 to serve HFGCSpy's web UI and proxy to Docker container...")
-
-    log_info("Ensuring Apache2 is installed and enabled...")
-    # Check if apache2 is active. If not, install/enable/start it.
-    apache_status_check = run_command(["systemctl", "is-active", "--quiet", "apache2"], check_return=False)
-    if apache_status_check.returncode != 0: # If apache2 is not active (exit code 0 means active)
-        log_info("Apache2 not running. Installing and starting...")
-        run_command(["apt", "install", "-y", "apache2"])
-        run_command(["systemctl", "enable", "apache2"])
-        run_command(["systemctl", "start", "apache2"])
-    else:
-        log_info("Apache2 is already running.")
-    
-    log_info("Enabling Apache2 modules: headers, ssl, proxy, proxy_http...")
-    run_command("a2enmod headers ssl proxy proxy_http", shell=True, check_return=False)
-
-    log_info(f"Copying HFGCSpy web UI files to Apache web root: {WEB_ROOT_DIR}")
-    if os.path.exists(WEB_ROOT_DIR):
-        log_warn(f"Existing web UI directory {WEB_ROOT_DIR} found. Wiping contents for dev install.")
-        shutil.rmtree(WEB_ROOT_DIR) # Explicitly wipe for dev install
-    os.makedirs(WEB_ROOT_DIR, exist_ok=True)
-    
-    # Corrected source directory: copy directly from HFGCSpy_APP_DIR
-    src_web_ui_dir = HFGCSpy_APP_DIR 
-
-    for item in os.listdir(src_web_ui_dir):
-        # Skip core/ and data/ and logs/ directories as they are not web UI files
-        if item in ["core", "data", "logs", "venv", ".git", ".github", "Dockerfile", "setup.py", "requirements.txt", "config.ini.template"]:
-            continue
-        
-        s = os.path.join(src_web_ui_dir, item)
-        d = os.path.join(WEB_ROOT_DIR, item)
-        
-        if os.path.isdir(s):
-            shutil.copytree(s, d, dirs_exist_ok=True)
-        else:
-            shutil.copy2(s, d)
-
-    # Ensure Apache has correct ownership/permissions
-    run_command(["chown", "-R", "www-data:www-data", WEB_ROOT_DIR])
-    run_command(["chmod", "-R", "755", WEB_ROOT_DIR])
-
-    server_ip = run_command(["hostname", "-I"], capture_output=True).split()[0]
-    # Automated SSL certificate selection
-    ssl_cert_path = ""
-    ssl_key_path = ""
-    use_ssl = False
-    ssl_domain = ""
-
-    letsencrypt_base_dir = "/etc/letsencrypt/live"
-    le_domains = []
-    if os.path.exists(letsencrypt_base_dir):
-        try:
-            result = run_command(["find", letsencrypt_base_dir, "-maxdepth", "1", "-mindepth", "1", "-type", "d", "-printf", "%P\n"], capture_output=True)
-            le_domains = [d for d in result.splitlines() if d and d != 'README']
-        except Exception as e:
-            log_warn(f"Could not list Let's Encrypt domains: {e}. Proceeding without SSL auto-config.")
-            le_domains = []
-        
-        if len(le_domains) == 1:
-            ssl_domain = le_domains[0]
-            ssl_cert_path = os.path.join(letsencrypt_base_dir, ssl_domain, "fullchain.pem")
-            ssl_key_path = os.path.join(letsencrypt_base_dir, ssl_domain, "privkey.pem")
-            use_ssl = True
-            log_info(f"Automatically selected single Let's Encrypt certificate for domain: {ssl_domain}")
-        elif len(le_domains) > 1:
-            log_info(f"Detected multiple Let's Encrypt certificates: {', '.join(le_domains)}")
-            if ask_yes_no("Do you want to configure HFGCSpy web UI to use HTTPS with one of these certificates?"):
-                use_ssl = True
-                print("Available domains with certificates:")
-                for i, domain in enumerate(le_domains):
-                    print(f"{i+1}) {domain}")
-                
-                while True:
-                    try:
-                        choice = int(input("Enter the number of the domain to use: "))
-                        if 1 <= choice <= len(le_domains):
-                            ssl_domain = le_domains[choice - 1]
-                            ssl_cert_path = os.path.join(letsencrypt_base_dir, ssl_domain, "fullchain.pem")
-                            ssl_key_path = os.path.join(letsencrypt_base_dir, ssl_domain, "privkey.pem")
-                            break
-                        else:
-                            print("Invalid input. Please try again.")
-                    except ValueError:
-                        print("Invalid input. Please enter a number.")
-            else:
-                log_info("Skipping HTTPS configuration via Let's Encrypt.")
-        else:
-            log_info("No Let's Encrypt certificates found. HTTPS will not be automatically configured.")
-    else:
-        log_info(f"Let's Encrypt directory {letsencrypt_base_dir} not found. HTTPS will not be automatically configured.")
-
-    # If SSL is to be used, ensure www-data can read the certs
-    if use_ssl:
-        log_info(f"Ensuring Apache's www-data user can read SSL certificates for {ssl_domain}.")
-        # Add www-data user to ssl-cert group. This is a common way to grant access.
-        run_command("sudo usermod -aG ssl-cert www-data", shell=True, check_return=False)
-        # Note: A system reboot or 'sudo systemctl restart apache2' might be needed for group changes to take full effect.
-        # However, for cert reading, often just the service restart is enough if the user is already in the group.
-
-
-    # Generate Apache config content
-    # ProxyPass /hfgcspy-api/ will forward to the Docker container's Flask API
-    # DocumentRoot /hfgcspy will serve the static files
-    apache_conf_path = "/etc/apache2/sites-available/hfgcspy.conf" # Define apache_conf_path
-    apache_conf_content = f"""
-<VirtualHost *:80>
-    ServerName {server_ip}
-    DocumentRoot {WEB_ROOT_DIR}
-
-    <Directory {WEB_ROOT_DIR}>
-        Options Indexes FollowSymLinks
-        AllowOverride None
-        Require all granted
-    </Directory>
-
-    # Alias for data directory (status.json, messages.json, recordings) - Removed problematic Alias
-    # Apache automatically serves content from subdirectories of DocumentRoot, so this Alias is not needed
-    # and was causing a syntax error.
-
-    ProxyPass /hfgcspy-api/ http://127.0.0.1:{HFGCSPY_INTERNAL_PORT}/
-    ProxyPassReverse /hfgcspy-api/ http://127.0.0.1:{HFGCSPY_INTERNAL_PORT}/
-
-    ErrorLog ${{APACHE_LOG_DIR}}/hfgcspy_webui_error.log
-    CustomLog ${{APACHE_LOG_DIR}}/hfgcspy_webui_access.log combined
-</VirtualHost>
-"""
-    if use_ssl and os.path.exists(ssl_cert_path) and os.path.exists(ssl_key_path):
-        apache_conf_content += f"""
-<VirtualHost *:443>
-    ServerName {ssl_domain if ssl_domain else server_ip}
-    DocumentRoot {WEB_ROOT_DIR}
-
-    <Directory {WEB_ROOT_DIR}>
-        Options Indexes FollowSymLinks
-        AllowOverride None
-        Require all granted
-    </Directory>
-
-    # Alias for data directory (status.json, messages.json, recordings) - Removed problematic Alias
-    # Apache automatically serves content from subdirectories of DocumentRoot, so this Alias is not needed
-    # and was causing a syntax error.
-
-    ProxyPass /hfgcspy-api/ http://127.0.0.1:{HFGCSPY_INTERNAL_PORT}/
-    ProxyPassReverse /hfgcspy-api/ http://127.0.0.1:{HFGCSPY_INTERNAL_PORT}/
-
-    ErrorLog ${{APACHE_LOG_DIR}}/hfgcspy_webui_ssl_error.log
-    CustomLog ${{APACHE_LOG_DIR}}/hfgcspy_webui_ssl_access.log combined
-
-    SSLEngine on
-    SSLCertificateFile "{ssl_cert_path}"
-    SSLCertificateKeyFile "{ssl_key_path}"
-"""
-        chain_path = os.path.join(letsencrypt_base_dir, ssl_domain, "chain.pem")
-        if os.path.exists(chain_path) and ssl_cert_path != os.path.join(letsencrypt_base_dir, ssl_domain, "fullchain.pem"):
-             apache_conf_content += f"    SSLCertificateChainFile \"{chain_path}\"\n"
-        
-        apache_conf_content += """
-    # HSTS (optional, highly recommended for security)
-    Header always set Strict-Transport-Security "max-age=63072000; includeSubDomains; preload"
-</VirtualHost>
-"""
-        log_info(f"Apache2 SSL configuration included for {ssl_domain}.")
-    else:
-        log_info("HTTPS will not be configured automatically. Web UI will be available via HTTP only.")
-
-    with open(apache_conf_path, "w") as f:
-        f.write(apache_conf_content) 
-
-    run_command(["a2ensite", os.path.basename(apache_conf_path)])
-    
-    # Test Apache configuration before restarting
-    log_info("Testing Apache configuration...")
-    run_command(["apachectl", "configtest"], check_return=True) # Ensure this command checks for errors
-
-    run_command(["systemctl", "restart", "apache2"])
-    log_info("Apache2 configured and restarted to serve HFGCSpy web UI.")
-    log_info(f"Access HFGCSpy at http://{server_ip}/hfgcspy (and https://{ssl_domain if ssl_domain else server_ip}/hfgcspy if SSL was configured).")
-
+# Removed the entire configure_apache2_webui function as per user request.
+# def configure_apache2_webui():
+#     ...
 
 def setup_systemd_service():
     log_info("Setting up HFGCSpy as a systemd service...")
@@ -553,32 +377,29 @@ def update_hfgcspy_app_code():
     log_info(f"Rebuilding Docker image '{HFGCSPY_DOCKER_IMAGE_NAME}' with latest code...")
     run_command(f"docker build -t {HFGCSPY_DOCKER_IMAGE_NAME} {HFGCSpy_APP_DIR}", shell=True)
 
-    log_info(f"Re-copying web UI files to Apache web root: {WEB_ROOT_DIR}...")
-    if os.path.exists(WEB_ROOT_DIR):
-        shutil.rmtree(WEB_ROOT_DIR) 
-    os.makedirs(WEB_ROOT_DIR, exist_ok=True)
-    src_web_ui_dir = HFGCSpy_APP_DIR # Corrected source directory for update
-
-    for item in os.listdir(src_web_ui_dir):
-        # Skip core/ and data/ and logs/ directories as they are not web UI files
-        if item in ["core", "data", "logs", "venv", ".git", ".github", "Dockerfile", "setup.py", "requirements.txt", "config.ini.template"]:
-            continue
-        
-        s = os.path.join(src_web_ui_dir, item)
-        d = os.path.join(WEB_ROOT_DIR, item)
-        
-        if os.path.isdir(s):
-            shutil.copytree(s, d, dirs_exist_ok=True)
-        else:
-            shutil.copy2(s, d)
-
-    run_command(["chown", "-R", "www-data:www-data", WEB_ROOT_DIR])
-    run_command(["chmod", "-R", "755", WEB_ROOT_DIR])
+    # Removed Apache web root copying from here
+    # log_info(f"Re-copying web UI files to Apache web root: {WEB_ROOT_DIR}...")
+    # if os.path.exists(WEB_ROOT_DIR):
+    #     shutil.rmtree(WEB_ROOT_DIR) 
+    # os.makedirs(WEB_ROOT_DIR, exist_ok=True)
+    # src_web_ui_dir = HFGCSpy_APP_DIR 
+    # for item in os.listdir(src_web_ui_dir):
+    #     if item in ["core", "data", "logs", "venv", ".git", ".github", "Dockerfile", "setup.py", "requirements.txt", "config.ini.template"]:
+    #         continue
+    #     s = os.path.join(src_web_ui_dir, item)
+    #     d = os.path.join(WEB_ROOT_DIR, item)
+    #     if os.path.isdir(s):
+    #         shutil.copytree(s, d, dirs_exist_ok=True)
+    #     else:
+    #         shutil.copy2(s, d)
+    # run_command(["chown", "-R", "www-data:www-data", WEB_ROOT_DIR])
+    # run_command(["chmod", "-R", "755", WEB_ROOT_DIR])
     
     log_info(f"Restarting HFGCSpy Docker service {HFGCSPY_SERVICE_NAME}...")
     run_command(["systemctl", "start", HFGCSPY_SERVICE_NAME])
     log_info("HFGCSpy updated and restarted.")
-    log_info("Remember to restart Apache2 if there were any issues or config changes: sudo systemctl restart apache2")
+    # Removed Apache restart suggestion
+    # log_info("Remember to restart Apache2 if there were any issues or config changes: sudo systemctl restart apache2")
 
 def check_sdr():
     log_info("Checking for RTL-SDR dongle presence on host system...")
@@ -623,19 +444,21 @@ def uninstall_hfgcspy():
     else:
         log_warn(f"HFGCSpy application directory {HFGCSpy_APP_DIR} not found. Skipping removal.")
 
-    if os.path.exists(WEB_ROOT_DIR):
-        log_warn(f"Removing Apache2 web UI directory: {WEB_ROOT_DIR}...")
-        shutil.rmtree(WEB_ROOT_DIR)
-    else:
-        log_warn(f"Apache2 web UI directory {WEB_ROOT_DIR} not found. Skipping removal.")
+    # Removed Apache web UI directory removal
+    # if os.path.exists(WEB_ROOT_DIR):
+    #     log_warn(f"Removing Apache2 web UI directory: {WEB_ROOT_DIR}...")
+    #     shutil.rmtree(WEB_ROOT_DIR)
+    # else:
+    #     log_warn(f"Apache2 web UI directory {WEB_ROOT_DIR} not found. Skipping removal.")
 
-    log_warn("Removing Apache2 configuration for HFGCSpy web UI (if it exists)...")
-    run_command(["a2dissite", "hfgcspy.conf"], check_return=False)
-    if os.path.exists("/etc/apache2/sites-available/hfgcspy.conf"):
-        os.remove("/etc/apache2/sites-available/hfgcspy.conf")
-    if os.path.exists("/etc/apache2/sites-enabled/hfgcspy.conf"):
-        os.remove("/etc/apache2/sites-enabled/hfgcspy.conf")
-    run_command(["systemctl", "restart", "apache2"], check_return=False)
+    # Removed Apache config removal
+    # log_warn("Removing Apache2 configuration for HFGCSpy web UI (if it exists)...")
+    # run_command(["a2dissite", "hfgcspy.conf"], check_return=False)
+    # if os.path.exists("/etc/apache2/sites-available/hfgcspy.conf"):
+    #     os.remove("/etc/apache2/sites-available/hfgcspy.conf")
+    # if os.path.exists("/etc/apache2/sites-enabled/hfgcspy.conf"):
+    #     os.remove("/etc/apache2/sites-enabled/hfgcspy.conf")
+    # run_command(["systemctl", "restart", "apache2"], check_return=False)
     
     log_info("HFGCSpy uninstallation complete.")
     log_info("You may want to manually remove the DVB-T blacklisting file: /etc/modprobe.d/blacklist-rtl.conf")
@@ -649,8 +472,9 @@ def stop_hfgcspy():
 def status_hfgcspy():
     log_info("Checking HFGCSpy Docker service status...")
     run_command(["systemctl", "status", HFGCSPY_SERVICE_NAME], shell=True)
-    log_info("Checking Apache2 service status...")
-    run_command(["systemctl", "status", "apache2"], shell=True)
+    # Removed Apache status check
+    # log_info("Checking Apache2 service status...")
+    # run_command(["systemctl", "status", "apache2"], shell=True)
 
 
 # --- Main Script Logic ---
@@ -690,41 +514,16 @@ def main():
         check_root()
         # Removed prompt_for_paths() call for automated install
         install_docker() # Install Docker first
-        install_system_dependencies() # Install other system deps (rtl-sdr, apache2, etc.)
+        install_system_dependencies() # Install other system deps (rtl-sdr, etc.)
         clone_hfgcspy_app_code() # Clone app code and setup venv (on host)
         configure_hfgcspy_app() # Configure config.ini on host
         build_and_run_docker_container() # Build image and run container
-        configure_apache2_webui() # Configure Apache to proxy to container
+        # Removed configure_apache2_webui() call
         setup_systemd_service() # Setup systemd for Docker container
         log_info("HFGCSpy installation complete. Please consider rebooting your Raspberry Pi for full effect.")
 
-        # --- Display Connection Strings ---
-        server_ip = run_command(["hostname", "-I"], capture_output=True).split()[0]
-        ssl_configured = False
-        ssl_domain_name = ""
-
-        # Attempt to read SSL domain from hfgcspy.conf if available
-        apache_conf_path = "/etc/apache2/sites-available/hfgcspy.conf"
-        try:
-            with open(apache_conf_path, 'r') as f:
-                content = f.read()
-                ssl_match = re.search(r"^\s*SSLEngine on", content, re.MULTILINE)
-                if ssl_match:
-                    ssl_configured = True
-                    domain_match = re.search(r"^\s*ServerName\s+([a-zA-Z0-9\-\.]+)", content, re.MULTILINE)
-                    if domain_match:
-                        ssl_domain_name = domain_match.group(1)
-        except FileNotFoundError:
-            pass # Config file not found, no SSL configured by script
-
+        # --- Display Connection Strings (only Docker related) ---
         log_info("\n--- HFGCSpy Access Information ---")
-        log_info(f"Web UI (via Apache): http://{server_ip}/hfgcspy")
-        if ssl_configured:
-            if ssl_domain_name:
-                log_info(f"Web UI (HTTPS via Apache): https://{ssl_domain_name}/hfgcspy")
-            else:
-                log_info(f"Web UI (HTTPS via Apache): https://{server_ip}/hfgcspy (Access might require accepting certificate warning)")
-        
         log_info(f"Docker API (local only for debugging): http://127.0.0.1:{HFGCSPY_INTERNAL_PORT}/hfgcspy-api/status")
         log_info("----------------------------------")
 
