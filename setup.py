@@ -1,7 +1,7 @@
 # HFGCSpy/setup.py
 # Python-based installer for HFGCSpy application.
 # This script handles all installation, configuration, and service management.
-# Version: 2.2.30 # Version bump for displaying diagnostic command output
+# Version: 2.2.31 # Version bump for robust Docker container status check and guaranteed logs on failure
 
 import os
 import sys
@@ -13,7 +13,7 @@ import argparse
 import time # Import time module for sleep
 
 # --- Script Version ---
-__version__ = "2.2.30" # Updated version for displaying diagnostic command output
+__version__ = "2.2.31" # Updated version for robust Docker container status check and guaranteed logs on failure
 
 # --- Configuration Constants (Defined directly in setup.py) ---
 # All constants are now embedded directly in this file to avoid import issues.
@@ -265,18 +265,18 @@ def build_and_run_docker_container():
     # --- New: Verify Docker container is running ---
     log_info(f"Verifying Docker container '{HFGCSPY_DOCKER_CONTAINER_NAME}' is running...")
     # Give Docker a moment to fully start the container process
-    time.sleep(5) 
+    time.sleep(10) # Increased sleep to 10 seconds
     container_status_output = run_command(f"docker inspect -f '{{{{.State.Status}}}}' {HFGCSPY_DOCKER_CONTAINER_NAME}", shell=True, capture_output=True)
     container_status = container_status_output.strip() # Ensure no leading/trailing whitespace
 
     if container_status == "running":
         log_info(f"Docker container '{HFGCSPY_DOCKER_CONTAINER_NAME}' is active and running.")
-        # Automatically show Docker logs if container is running
-        log_info(f"Displaying Docker container logs for '{HFGCSPY_DOCKER_CONTAINER_NAME}':")
-        run_command(f"docker logs {HFGCSPY_DOCKER_CONTAINER_NAME}", shell=True, check_return=False) # Don't exit if logs have errors
     else:
         log_error(f"Docker container '{HFGCSPY_DOCKER_CONTAINER_NAME}' is not running. Current status: {container_status}. "
                   f"Please check container logs for details: 'docker logs {HFGCSPY_DOCKER_CONTAINER_NAME}'")
+        # Explicitly display Docker logs if container is not running
+        log_info(f"Displaying Docker container logs for '{HFGCSPY_DOCKER_CONTAINER_NAME}':")
+        run_command(f"docker logs {HFGCSPY_DOCKER_CONTAINER_NAME}", shell=True, check_return=False) # Don't exit if logs have errors
 
 
 def configure_hfgcspy_app():
