@@ -1,22 +1,14 @@
 # HFGCSpy/core/sdr_manager.py
-# Version: 2.0.7 # Version bump for robust rtlsdr import strategy (compatible with various versions)
+# Version: 2.0.8 # Version bump for more robust rtlsdr import and init logic
 
 import numpy as np
 import logging
 import time # For potential delays in error recovery
 
-logger = logging.getLogger(__name__)
+# Import the entire rtlsdr module for more robust access to get_devices
+import rtlsdr 
 
-# Robust import strategy for RtlSdr and get_devices
-try:
-    from rtlsdr import RtlSdr, get_devices
-except ImportError:
-    try:
-        from rtlsdr.rtlsdr import RtlSdr, get_devices
-    except ImportError as e:
-        logger.critical(f"Failed to import RtlSdr or get_devices from rtlsdr. Check pyrtlsdr installation. Error: {e}")
-        # Re-raise the error to stop the application if imports fail
-        raise
+logger = logging.getLogger(__name__)
 
 class SDRManager:
     def __init__(self, device_identifier=0, sample_rate=2.048e6, center_freq=8.992e6, gain='auto', ppm_correction=0):
@@ -36,7 +28,8 @@ class SDRManager:
         """
         devices = []
         try:
-            sdr_devices = get_devices()
+            # Access get_devices directly from the imported rtlsdr module
+            sdr_devices = rtlsdr.get_devices() 
             for dev in sdr_devices:
                 devices.append(dev.serial_number)
             logger.info(f"Detected {len(devices)} SDR devices: {devices}")
@@ -51,11 +44,11 @@ class SDRManager:
 
         try:
             if isinstance(self.device_identifier, str):
-                self.sdr = RtlSdr(serial_number=self.device_identifier)
+                self.sdr = rtlsdr.RtlSdr(serial_number=self.device_identifier)
             else:
-                self.sdr = RtlSdr(self.device_identifier)
+                self.sdr = rtlsdr.RtlSdr(self.device_identifier)
 
-            # Set parameters after SDR object is created
+            # Set parameters after SDR object is created and confirmed
             self.sdr.sample_rate = self.sample_rate
             self.sdr.center_freq = self.center_freq
             self.sdr.gain = self.gain
