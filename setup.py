@@ -1,7 +1,7 @@
 # HFGCSpy/setup.py
 # Python-based installer for HFGCSpy application.
 # This script handles all installation, configuration, and service management.
-# Version: 2.2.26 # Version bump for increased Docker startup delay and explicit log check
+# Version: 2.2.27 # Version bump for robust Docker container status check
 
 import os
 import sys
@@ -13,7 +13,7 @@ import argparse
 import time # Import time module for sleep
 
 # --- Script Version ---
-__version__ = "2.2.26" # Updated version for increased Docker startup delay and explicit log check
+__version__ = "2.2.27" # Updated version for robust Docker container status check
 
 # --- Configuration Constants (Defined directly in setup.py) ---
 # All constants are now embedded directly in this file to avoid import issues.
@@ -261,8 +261,9 @@ def build_and_run_docker_container():
     log_info(f"Verifying Docker container '{HFGCSPY_DOCKER_CONTAINER_NAME}' is running...")
     # Give Docker a moment to fully start the container process
     time.sleep(5) 
-    container_status = run_command(f"docker inspect -f '{{.State.Status}}' {HFGCSPY_DOCKER_CONTAINER_NAME}", shell=True, capture_output=True)
-    
+    container_status_output = run_command(f"docker inspect -f '{{{{.State.Status}}}}' {HFGCSPY_DOCKER_CONTAINER_NAME}", shell=True, capture_output=True)
+    container_status = container_status_output.strip() # Ensure no leading/trailing whitespace
+
     if container_status == "running":
         log_info(f"Docker container '{HFGCSPY_DOCKER_CONTAINER_NAME}' is active and running.")
     else:
@@ -519,7 +520,7 @@ def main():
 
 
     # Process arguments
-    if len(sys.argv) == 1: # Corrected from len(sys.argv == 1) to len(sys.argv) == 1
+    if len(sys.argv) == 1:
         parser.print_help()
         sys.exit(0)
 
