@@ -1,7 +1,7 @@
 # HFGCSpy/setup.py
 # Python-based installer for HFGCSpy application.
 # This script handles all installation, configuration, and service management.
-# Version: 2.2.43 # Version bump for SyntaxError fixes in log calls
+# Version: 2.2.47 # Version bump for definitive NameError fix for NC in log_section (string concatenation)
 
 import os
 import sys
@@ -13,7 +13,7 @@ import argparse
 import time # Import time module for sleep
 
 # --- Script Version ---
-__version__ = "2.2.43" # Updated version for SyntaxError fixes in log calls
+__version__ = "2.2.47" # Updated version for definitive NameError fix for NC in log_section
 
 # --- Configuration Constants (Defined directly in setup.py) ---
 # All constants are now embedded directly in this file to avoid import issues.
@@ -44,22 +44,29 @@ HFGCSPY_CONFIG_JSON_PATH = None
 
 # --- Helper Functions (Ensured to be correctly defined and callable) ---
 
+# Define colors for output globally
+RED='\033[0;31m'
+GREEN='\033[1;32m' # Light green for info
+YELLOW='\033[0;33m'
+CYAN='\033[1;36m' # Bold cyan for sections
+NC='\033[0m' # No Color - MUST be defined globally for f-strings
+
 def log_info(message):
-    # Changed color to light green (bold green) for better visibility
-    print(f"\n\033[1;32mINFO: {message}\033[0m") # Light Green text for info
+    print(f"\n\033[1;32mINFO: {message}{NC}") # Light Green text for info
 
 def log_warn(message):
-    print(f"\n\033[0;33mWARNING: {message}\033[0m") # Yellow text for warnings
+    print(f"\n\033[0;33mWARNING: {message}{NC}") # Yellow text for warnings
 
 def log_error(message, exit_code=1):
-    print(f"\n\033[0;31mERROR: {message}\033[0m") # Red text for errors
+    print(f"\n\033[0;31mERROR: {message}{NC}") # Red text for errors
     sys.exit(exit_code)
 
 def log_success(message):
-    print(f"\n\033[1;32mSUCCESS: {message}\033[0m") # Light Green text for success
+    print(f"\n\033[1;32mSUCCESS: {message}{NC}") # Light Green text for success
 
 def log_section(title):
-    print(f"\n\033[1;36m--- {title} ---{NC}") # Bold cyan for sections
+    # Explicitly concatenate NC to ensure it's always part of the string literal
+    print("\n\033[1;36m--- " + title + " ---" + NC) # Bold cyan for sections
 
 
 def ask_yes_no(question, default_yes=True): # Modified to accept default
@@ -474,7 +481,7 @@ def configure_hfgcspy_app():
         config_obj.write(f)
     log_info(f"Paths in config.ini updated: {HFGCSpy_CONFIG_FILE}")
 
-    hfgcs_user = os.getenv("SUDO_USER") or "pi" 
+    hfgcs_user = os.getenv("SUDO_USER") or os.getlogin() 
     log_info(f"Setting ownership of {HFGCSpy_APP_DIR} to {hfgcs_user}.")
     run_command(["sudo", "chown", "-R", f"{hfgcs_user}:{hfgcs_user}", HFGCSpy_APP_DIR])
     run_command(["sudo", "chmod", "-R", "u+rwX,go-w", HFGCSpy_APP_DIR]) 
