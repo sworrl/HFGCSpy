@@ -1,7 +1,7 @@
 # HFGCSpy/setup.py
 # Python-based installer for HFGCSpy application.
 # This script handles all installation, configuration, and service management.
-# Version: 2.2.47 # Version bump for definitive NameError fix for NC in log_section (string concatenation)
+# Version: 2.2.49 # Version bump for AttributeError fix in diagnose_and_fix_sdr_host
 
 import os
 import sys
@@ -13,7 +13,7 @@ import argparse
 import time # Import time module for sleep
 
 # --- Script Version ---
-__version__ = "2.2.47" # Updated version for definitive NameError fix for NC in log_section
+__version__ = "2.2.49" # Updated version for AttributeError fix in diagnose_and_fix_sdr_host
 
 # --- Configuration Constants (Defined directly in setup.py) ---
 # All constants are now embedded directly in this file to avoid import issues.
@@ -191,10 +191,12 @@ def diagnose_and_fix_sdr_host():
     run_command(["lsusb"])
 
     log_info("Running initial rtl_test -t to confirm 'PLL not locked!' status.")
-    rtl_test_result = run_command(["rtl_test", "-t"], capture_output=True, check_return=False)
+    # Now, rtl_test_result is directly the string output
+    # The run_command function now returns the string output directly when capture_output=True
+    rtl_test_output_str = run_command(["rtl_test", "-t"], capture_output=True, check_return=False)
     
     sdr_working_initially = True
-    if "PLL not locked!" in rtl_test_result.stdout or "No devices found" in rtl_test_result.stdout:
+    if "PLL not locked!" in rtl_test_output_str or "No devices found" in rtl_test_output_str: # Use string directly
         sdr_working_initially = False
         log_warn("Initial rtl_test reported problems ('PLL not locked!' or 'No devices found'). Attempting to fix.")
     else:
