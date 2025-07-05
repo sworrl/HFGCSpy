@@ -1,7 +1,7 @@
 # HFGCSpy/setup.py
 # Python-based installer for HFGCSpy application.
 # This script handles all installation, configuration, and service management.
-# Version: 2.2.44 # Version bump for definitive NameError fix on log_ functions
+# Version: 2.2.43 # Version bump for SyntaxError fixes in log calls
 
 import os
 import sys
@@ -13,7 +13,7 @@ import argparse
 import time # Import time module for sleep
 
 # --- Script Version ---
-__version__ = "2.2.44" # Updated version for definitive NameError fix on log_ functions
+__version__ = "2.2.43" # Updated version for SyntaxError fixes in log calls
 
 # --- Configuration Constants (Defined directly in setup.py) ---
 # All constants are now embedded directly in this file to avoid import issues.
@@ -492,7 +492,6 @@ def setup_systemd_service():
     
     hfgcs_user = os.getenv("SUDO_USER")
     if not hfgcs_user:
-        hfgcs_user = "pi" 
         log_warn(f"SUDO_USER environment variable not set. Defaulting HFGCSpy service user to '{hfgcs_user}'. Please confirm this is correct or manually adjust.")
 
     service_file_path = f"/etc/systemd/system/{HFGCSPY_SERVICE_NAME}"
