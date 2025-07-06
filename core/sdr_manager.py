@@ -1,11 +1,12 @@
 # HFGCSpy/core/sdr_manager.py
-# Version: 2.0.17 # Version bump for RtlSdr direct instantiation for device listing
+# Version: 2.0.18 # Version bump for using subprocess.run to list SDR devices
 
 import numpy as np
 import logging
 import time # For potential delays in error recovery
+import subprocess # For running rtl_test directly
 
-# Import RtlSdr directly. We will not use get_devices/find_devices for listing.
+# Import RtlSdr directly. We will use it for opening/closing, but not for listing.
 from rtlsdr import RtlSdr 
 
 logger = logging.getLogger(__name__)
@@ -23,30 +24,36 @@ class SDRManager:
     @staticmethod
     def list_sdr_devices_serials():
         """
-        Lists available RTL-SDR devices by iterating through potential device indices.
-        This is a fallback method if RtlSdr.get_devices() is not available.
+        Lists available RTL-SDR devices by running 'rtl_test -t' directly.
+        This is a robust fallback if pyrtlsdr's internal device listing fails.
         Returns a list of strings (serial numbers).
         """
         devices = []
-        logger.debug("Attempting to list SDR devices by direct instantiation.")
-        for i in range(10): # Try up to 10 potential devices
-            try:
-                sdr = RtlSdr(i)
-                serial = sdr.serial_number
-                sdr.close() # Close immediately after getting serial
-                if serial not in devices:
-                    devices.append(serial)
-                logger.debug(f"Found SDR at index {i} with serial: {serial}")
-            except Exception as e:
-                # logger.debug(f"No SDR found at index {i} or error opening: {e}")
-                pass # Expected for non-existent devices or if it's already busy
+        logger.debug("Attempting to list SDR devices by running 'rtl_test -t'.")
+        try:
+            # Run rtl_test -t and capture its output
+            result = subprocess.run(["rtl_test", "-t"], capture_output=True, text=True, check=False)
+            output_lines = result.stdout.splitlines() + result.stderr.splitlines()
 
-        if not devices:
-            logger.critical("CRITICAL ERROR: Could not find any SDR devices by direct instantiation. "
-                            "This indicates pyrtlsdr might be completely broken or no SDRs are accessible "
-                            "through this method. Check libusb permissions and device availability.")
-        else:
-            logger.info(f"Successfully detected {len(devices)} SDR devices: {devices} by direct instantiation.")
+            for line in output_lines:
+                # Example line: "  0:  Realtek, RTL2838UHIDIR, SN: 00000001"
+                match = re.search(r"SN:\s*([0-9a-fA-F]+)", line)
+                if match:
+                    serial = match.group(1)
+                    if serial not in devices: # Avoid duplicates
+                        devices.append(serial)
+            
+            if not devices:
+                logger.critical("CRITICAL ERROR: 'rtl_test -t' ran, but no SDR devices with serial numbers were found in its output. "
+                                "Output of rtl_test -t:\n" + result.stdout + result.stderr)
+            else:
+                logger.info(f"Successfully detected {len(devices)} SDR devices: {devices} by running 'rtl_test -t'.")
+            
+        except FileNotFoundError:
+            logger.critical("CRITICAL ERROR: 'rtl_test' command not found inside Docker container. "
+                            "Ensure rtl-sdr tools are installed in the Dockerfile.")
+        except Exception as e:
+            logger.critical(f"CRITICAL ERROR: Unexpected error when running 'rtl_test -t' for device listing: {e}", exc_info=True)
         return devices
 
     def open_sdr(self):
@@ -55,6 +62,7 @@ class SDRManager:
             return
 
         try:
+            # Use RtlSdr from the imported rtlsdr module
             if isinstance(self.device_identifier, str):
                 self.sdr = RtlSdr(serial_number=self.device_identifier)
             else:
