@@ -1,13 +1,12 @@
 # HFGCSpy/core/sdr_manager.py
-# Version: 2.0.16 # Version bump for RtlSdr.get_devices compatibility with pyrtlsdr==0.3.0
+# Version: 2.0.17 # Version bump for RtlSdr direct instantiation for device listing
 
 import numpy as np
 import logging
 import time # For potential delays in error recovery
 
-# Import the RtlSdr class directly. We will use its static method for device listing.
+# Import RtlSdr directly. We will not use get_devices/find_devices for listing.
 from rtlsdr import RtlSdr 
-# No longer attempting to import get_devices or util directly at module level
 
 logger = logging.getLogger(__name__)
 
@@ -24,25 +23,30 @@ class SDRManager:
     @staticmethod
     def list_sdr_devices_serials():
         """
-        Lists available RTL-SDR devices by their serial numbers.
-        This method uses RtlSdr.get_devices() which is a static method of the RtlSdr class,
-        known to be compatible with pyrtlsdr==0.3.0.
+        Lists available RTL-SDR devices by iterating through potential device indices.
+        This is a fallback method if RtlSdr.get_devices() is not available.
         Returns a list of strings (serial numbers).
         """
         devices = []
-        try:
-            # Use the static method RtlSdr.get_devices()
-            sdr_devices = RtlSdr.get_devices() 
-            for dev in sdr_devices:
-                # Ensure dev object has a serial_number attribute
-                if hasattr(dev, 'serial_number'):
-                    devices.append(dev.serial_number)
-                else:
-                    logger.warning(f"Detected SDR device without serial_number attribute: {dev}")
-            logger.info(f"Successfully detected {len(devices)} SDR devices: {devices} using RtlSdr.get_devices().")
-        except Exception as e:
-            logger.critical(f"CRITICAL ERROR: Failed to list SDR devices using RtlSdr.get_devices(). "
-                            f"This indicates a core issue with pyrtlsdr installation or device access: {e}", exc_info=True)
+        logger.debug("Attempting to list SDR devices by direct instantiation.")
+        for i in range(10): # Try up to 10 potential devices
+            try:
+                sdr = RtlSdr(i)
+                serial = sdr.serial_number
+                sdr.close() # Close immediately after getting serial
+                if serial not in devices:
+                    devices.append(serial)
+                logger.debug(f"Found SDR at index {i} with serial: {serial}")
+            except Exception as e:
+                # logger.debug(f"No SDR found at index {i} or error opening: {e}")
+                pass # Expected for non-existent devices or if it's already busy
+
+        if not devices:
+            logger.critical("CRITICAL ERROR: Could not find any SDR devices by direct instantiation. "
+                            "This indicates pyrtlsdr might be completely broken or no SDRs are accessible "
+                            "through this method. Check libusb permissions and device availability.")
+        else:
+            logger.info(f"Successfully detected {len(devices)} SDR devices: {devices} by direct instantiation.")
         return devices
 
     def open_sdr(self):
