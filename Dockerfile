@@ -1,14 +1,10 @@
 # HFGCSpy/Dockerfile
-# Version: 2.0.0
+# Version: 1.0.1 # Version bump for robust pyrtlsdr installation
 
-# Use a slim Debian-based image for smaller size
 FROM debian:bookworm-slim
 
-# Set environment variables
-ENV DEBIAN_FRONTEND=noninteractive
-ENV PYTHONUNBUFFERED 1
-
-# Install system dependencies
+# Install system dependencies required for rtl-sdr and Python
+# librtlsdr-dev is crucial for pyrtlsdr to compile and link correctly
 RUN apt update && apt install -y \
     python3 \
     python3-pip \
@@ -16,37 +12,39 @@ RUN apt update && apt install -y \
     build-essential \
     libusb-1.0-0-dev \
     rtl-sdr \
-    # Add other libs if needed for specific decoders later (e.g., for sound processing)
-    # libatlas-base-dev \
-    # libopenblas-dev \
-    # alsa-utils \
-    # sox \
-    && rm -rf /var/lib/apt/lists/*
+    librtlsdr-dev \
+    && rm -rf /var/lib/apt/lists/* \
+    && ldconfig # Update shared library cache after installing librtlsdr-dev
 
-# Create app directory
+# Set working directory inside the container
 WORKDIR /app
 
-# Copy requirements file and install Python dependencies
+# Copy requirements.txt first to leverage Docker cache
 COPY requirements.txt .
+
+# Create Python virtual environment and install dependencies
+# IMPORTANT: Explicitly activate venv and set PATH for subsequent commands
 RUN python3 -m venv venv && \
-    /app/venv/bin/pip install --upgrade pip && \
-    /app/venv/bin/pip install -r requirements.txt
+    . venv/bin/activate && \
+    pip install --upgrade pip && \
+    pip install -r requirements.txt
+
+# Set environment variables for the virtual environment for all subsequent commands
+ENV VIRTUAL_ENV=/app/venv
+ENV PATH="/app/venv/bin:$PATH"
 
 # Copy the rest of the application code
 COPY . .
 
-# Create necessary runtime directories inside the container
+# Create persistent data directories that will be mounted as a Docker volume
+# These paths must match the container-side paths in config.ini
 RUN mkdir -p /app/data/hfgcspy_data/recordings \
-           /app/logs \
-           /app/data/online_sdr_data # For future online SDR data if needed
+             /app/logs \
+             /app/data/online_sdr_data # For future online SDR data if needed
 
-# Expose the internal Flask/Gunicorn port
+# Expose the port Flask/Gunicorn will listen on
 EXPOSE 8002
 
-# Command to run the application
-# Use gunicorn to serve the Flask API (api_server.py)
-# The hfgcs.py script will run its SDR logic in a background thread
-CMD ["/app/venv/bin/gunicorn", "--workers", "1", "--bind", "0.0.0.0:8002", "api_server:app"]
-
-# Alternative CMD if you want hfgcs.py to be the direct entrypoint and manage Flask internally
-# CMD ["/app/venv/bin/python3", "hfgcs.py", "--run"]
+# Define the command to run your Flask app with Gunicorn
+# Gunicorn will automatically use the python from the PATH (which is now our venv)
+CMD ["gunicorn", "-w", "1", "-b", "0.0.0.0:8002", "api_server:app"]

@@ -1,7 +1,7 @@
 # HFGCSpy/setup.py
 # Python-based installer for HFGCSpy application.
 # This script handles all installation, configuration, and service management.
-# Version: 2.2.49 # Version bump for AttributeError fix in diagnose_and_fix_sdr_host
+# Version: 2.2.44 # Version bump for Dockerfile changes (venv PATH, ldconfig)
 
 import os
 import sys
@@ -13,7 +13,7 @@ import argparse
 import time # Import time module for sleep
 
 # --- Script Version ---
-__version__ = "2.2.49" # Updated version for AttributeError fix in diagnose_and_fix_sdr_host
+__version__ = "2.2.44" # Updated version for Dockerfile changes (venv PATH, ldconfig)
 
 # --- Configuration Constants (Defined directly in setup.py) ---
 # All constants are now embedded directly in this file to avoid import issues.
@@ -191,12 +191,10 @@ def diagnose_and_fix_sdr_host():
     run_command(["lsusb"])
 
     log_info("Running initial rtl_test -t to confirm 'PLL not locked!' status.")
-    # Now, rtl_test_result is directly the string output
-    # The run_command function now returns the string output directly when capture_output=True
-    rtl_test_output_str = run_command(["rtl_test", "-t"], capture_output=True, check_return=False)
+    rtl_test_result = run_command(["rtl_test", "-t"], capture_output=True, check_return=False)
     
     sdr_working_initially = True
-    if "PLL not locked!" in rtl_test_output_str or "No devices found" in rtl_test_output_str: # Use string directly
+    if "PLL not locked!" in rtl_test_result or "No devices found" in rtl_test_result: # Use string directly
         sdr_working_initially = False
         log_warn("Initial rtl_test reported problems ('PLL not locked!' or 'No devices found'). Attempting to fix.")
     else:
@@ -315,7 +313,7 @@ SUBSYSTEM=="usb", ATTRS{idVendor}=="0bda", ATTRS{idProduct}=="2838", MODE="0666"
         log_warn(f"User '{CURRENT_USER}' is NOT in the 'plugdev' group.")
         log_info(f"Attempting to add user '{CURRENT_USER}' to the 'plugdev' group.")
         run_command(["sudo", "usermod", "-aG", "plugdev", CURRENT_USER])
-        log_warn("IMPORTANT: Please LOG OUT and LOG BACK IN (or REBOOT) for the group changes to take full effect!")
+        log_warn("IMPORTANT: Please LOG OUT and LOG BACK IN (or or REBOOT) for the group changes to take full effect!")
     else:
         log_info(f"User '{CURRENT_USER}' is already in the 'plugdev' group.")
 
@@ -664,8 +662,8 @@ def main():
         log_info("\nShowing active Docker containers ('docker ps'):")
         run_command(["sudo", "docker", "ps"], check_return=False)
 
-        log_info(f"\nShowing Docker container stats for '{HFGCSPY_DOCKER_CONTAINER_NAME}' ('docker stats --no-stream'):")
-        run_command(["sudo", "docker", "stats", HFGCSPY_DOCKER_CONTAINER_NAME, "--no-stream"], check_return=False)
+        log_info(f"\nShowing Docker container stats for '{HFGCSPY_DOCKER_IMAGE_NAME}' ('docker stats --no-stream'):")
+        run_command(["sudo", "docker", "stats", HFGCSPY_DOCKER_IMAGE_NAME, "--no-stream"], check_return=False) # Changed from CONTAINER_NAME to IMAGE_NAME
 
         log_info(f"\nShowing listening ports on host ('sudo netstat -tulnp | grep {HFGCSPY_INTERNAL_PORT}'):")
         run_command(["sudo", "netstat", "-tulnp", "|", "grep", str(HFGCSPY_INTERNAL_PORT)], shell=True, check_return=False)
