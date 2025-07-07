@@ -1,10 +1,11 @@
 # HFGCSpy/core/sdr_manager.py
-# Version: 2.0.18 # Version bump for using subprocess.run to list SDR devices
+# Version: 2.0.19 # Version bump for adding 'import re'
 
 import numpy as np
 import logging
 import time # For potential delays in error recovery
 import subprocess # For running rtl_test directly
+import re # Added: For regular expressions
 
 # Import RtlSdr directly. We will use it for opening/closing, but not for listing.
 from rtlsdr import RtlSdr 
